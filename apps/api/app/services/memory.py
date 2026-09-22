@@ -96,6 +96,14 @@ class MemoryCurator:
             related_id = str(candidate.related_memory_id) if candidate.related_memory_id else None
             if related_id and related_id not in valid_existing_ids:
                 related_id = None
+            source_moment_ids = {str(moment["id"])}
+            if candidate.operation == "update" and related_id:
+                previous_sources = await self.db.select(
+                    "memory_sources",
+                    user.access_token,
+                    params={"select": "moment_id", "memory_id": f"eq.{related_id}"},
+                )
+                source_moment_ids.update(str(item["moment_id"]) for item in previous_sources)
             inserted = await self.db.insert(
                 "memories",
                 user.access_token,
@@ -120,11 +128,14 @@ class MemoryCurator:
             await self.db.insert(
                 "memory_sources",
                 user.access_token,
-                {
-                    "memory_id": memory["id"],
-                    "moment_id": moment["id"],
-                    "user_id": str(user.id),
-                },
+                [
+                    {
+                        "memory_id": memory["id"],
+                        "moment_id": source_moment_id,
+                        "user_id": str(user.id),
+                    }
+                    for source_moment_id in sorted(source_moment_ids)
+                ],
             )
             if candidate.operation == "update" and related_id:
                 await self.db.update(

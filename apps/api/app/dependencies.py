@@ -1,3 +1,4 @@
+from collections.abc import AsyncIterator
 from typing import Annotated
 
 from fastapi import Depends, Header, HTTPException, status
@@ -7,8 +8,12 @@ from app.config import Settings, get_settings
 from app.domain import UserContext
 
 
-def get_db(settings: Annotated[Settings, Depends(get_settings)]) -> SupabaseClient:
-    return SupabaseClient(settings)
+async def get_db(settings: Annotated[Settings, Depends(get_settings)]) -> AsyncIterator[SupabaseClient]:
+    db = SupabaseClient(settings)
+    try:
+        yield db
+    finally:
+        await db.aclose()
 
 
 async def get_current_user(

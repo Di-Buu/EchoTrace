@@ -23,6 +23,7 @@
     "react-native-web": "^0.21.2"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@types/react": "~19.2.2",
     "typescript": "~6.0.3"
   },
@@ -31,8 +32,11 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
+    "test:e2e:web": "playwright test --config=playwright.config.mjs",
+    "test:e2e:web:headed": "playwright test --config=playwright.config.mjs --headed",
     "typecheck": "tsc --noEmit",
-    "doctor": "expo-doctor"
+    "doctor": "expo-doctor",
+    "lint": "expo lint"
   },
   "private": true
 }

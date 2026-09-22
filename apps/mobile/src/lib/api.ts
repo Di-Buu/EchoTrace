@@ -9,6 +9,7 @@ export class ApiError extends Error {
     public readonly code?: string,
   ) {
     super(message);
+    Object.setPrototypeOf(this, new.target.prototype);
   }
 }
 
@@ -26,10 +27,15 @@ async function authHeaders(): Promise<Record<string, string>> {
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = await authHeaders();
-  const response = await fetch(`${apiUrl}${path}`, {
-    ...init,
-    headers: { ...headers, ...(init?.headers ?? {}) },
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${apiUrl}${path}`, {
+      ...init,
+      headers: { ...headers, ...(init?.headers ?? {}) },
+    });
+  } catch {
+    throw new ApiError('网络连接失败，请稍后重试。', 0, 'NETWORK_ERROR');
+  }
   if (!response.ok) {
     let message = '请求失败，请稍后再试';
     let code: string | undefined;

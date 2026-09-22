@@ -77,6 +77,28 @@ cd apps/api
 .\.venv\Scripts\python.exe ..\..\evaluation\run_evaluation.py --suite all
 ```
 
+### 公网黑盒验收
+
+公网验收使用独立测试账号真实调用已部署的 Supabase、Vercel API 和百炼模型，不依赖浏览器登录态。
+复制 `evaluation/live-e2e.example.env` 为 `evaluation/live-e2e.env`，只填写已确认邮箱的专用测试账号；该文件已被 Git 忽略。
+
+```powershell
+cd apps/api
+.\.venv\Scripts\python.exe ..\..\evaluation\run_live_e2e.py --suite smoke
+.\.venv\Scripts\python.exe ..\..\evaluation\run_live_e2e.py --suite full
+```
+
+- `smoke`：验证公网健康检查、真实登录、Moment 写入与历史读取，不调用模型。
+- `full`：继续验证 Memory Curator、Embedding、短期对话、长期召回、Insight、Evidence 与证据不足拒答。
+- 每次运行会生成本地 JSON 报告；报告和测试账号凭据都不会进入 Git。
+
+同一账号也可用于公网网页自动验收。测试默认调用本机已安装的 Microsoft Edge，无需下载额外浏览器：
+
+```powershell
+cd apps/mobile
+npm run test:e2e:web
+```
+
 ## 安全边界
 
 - 关于用户过去经历、偏好、状态和变化的陈述必须关联当前用户的真实 Moment。

@@ -1,3 +1,4 @@
+import asyncio
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query
@@ -24,18 +25,21 @@ async def create_moment(payload: MomentCreate, user: CurrentUser, db: Database) 
         },
     )
     moment = rows[0]
-    await Telemetry(db, user.access_token, user.id).product_event(
-        event_name="moment_created",
-        properties={
-            "input_type": payload.input_type,
-            "mode": payload.mode,
-            "has_image": False,
-            "has_audio": False,
-        },
-    )
-    await Telemetry(db, user.access_token, user.id).product_event(
-        event_name="capture_mode_used" if payload.mode == "capture" else "chat_mode_used",
-        properties={"input_type": payload.input_type},
+    telemetry = Telemetry(db, user.access_token, user.id)
+    await asyncio.gather(
+        telemetry.product_event(
+            event_name="moment_created",
+            properties={
+                "input_type": payload.input_type,
+                "mode": payload.mode,
+                "has_image": False,
+                "has_audio": False,
+            },
+        ),
+        telemetry.product_event(
+            event_name="capture_mode_used" if payload.mode == "capture" else "chat_mode_used",
+            properties={"input_type": payload.input_type},
+        ),
     )
     return moment
 

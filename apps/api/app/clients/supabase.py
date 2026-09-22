@@ -14,6 +14,10 @@ class SupabaseClient:
 
     def __init__(self, settings: Settings):
         self.settings = settings
+        self.http = httpx.AsyncClient()
+
+    async def aclose(self) -> None:
+        await self.http.aclose()
 
     def _headers(self, access_token: str, *, representation: bool = False) -> dict[str, str]:
         headers = {
@@ -27,11 +31,11 @@ class SupabaseClient:
 
     async def resolve_user(self, access_token: str) -> dict[str, Any]:
         self._ensure_configured()
-        async with httpx.AsyncClient(timeout=15) as client:
-            response = await client.get(
-                self.settings.supabase_auth_user_url,
-                headers=self._headers(access_token),
-            )
+        response = await self.http.get(
+            self.settings.supabase_auth_user_url,
+            headers=self._headers(access_token),
+            timeout=15,
+        )
         return self._json_or_raise(response)
 
     async def select(
@@ -42,12 +46,12 @@ class SupabaseClient:
         params: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         self._ensure_configured()
-        async with httpx.AsyncClient(timeout=20) as client:
-            response = await client.get(
-                f"{self.settings.supabase_rest_url}/{table}",
-                params=params or {},
-                headers=self._headers(access_token),
-            )
+        response = await self.http.get(
+            f"{self.settings.supabase_rest_url}/{table}",
+            params=params or {},
+            headers=self._headers(access_token),
+            timeout=20,
+        )
         data = self._json_or_raise(response)
         return data if isinstance(data, list) else [data]
 
@@ -55,12 +59,12 @@ class SupabaseClient:
         self, table: str, access_token: str, payload: dict[str, Any] | list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
         self._ensure_configured()
-        async with httpx.AsyncClient(timeout=20) as client:
-            response = await client.post(
-                f"{self.settings.supabase_rest_url}/{table}",
-                json=payload,
-                headers=self._headers(access_token, representation=True),
-            )
+        response = await self.http.post(
+            f"{self.settings.supabase_rest_url}/{table}",
+            json=payload,
+            headers=self._headers(access_token, representation=True),
+            timeout=20,
+        )
         data = self._json_or_raise(response)
         return data if isinstance(data, list) else [data]
 
@@ -73,32 +77,33 @@ class SupabaseClient:
         params: dict[str, Any],
     ) -> list[dict[str, Any]]:
         self._ensure_configured()
-        async with httpx.AsyncClient(timeout=20) as client:
-            response = await client.patch(
-                f"{self.settings.supabase_rest_url}/{table}",
-                params=params,
-                json=payload,
-                headers=self._headers(access_token, representation=True),
-            )
+        response = await self.http.patch(
+            f"{self.settings.supabase_rest_url}/{table}",
+            params=params,
+            json=payload,
+            headers=self._headers(access_token, representation=True),
+            timeout=20,
+        )
         data = self._json_or_raise(response)
         return data if isinstance(data, list) else [data]
 
     async def delete(self, table: str, access_token: str, *, params: dict[str, Any]) -> list[dict[str, Any]]:
         self._ensure_configured()
         headers = self._headers(access_token, representation=True)
-        async with httpx.AsyncClient(timeout=20) as client:
-            response = await client.delete(f"{self.settings.supabase_rest_url}/{table}", params=params, headers=headers)
+        response = await self.http.delete(
+            f"{self.settings.supabase_rest_url}/{table}", params=params, headers=headers, timeout=20
+        )
         data = self._json_or_raise(response)
         return data if isinstance(data, list) else [data]
 
     async def rpc(self, function: str, access_token: str, payload: dict[str, Any]) -> list[dict[str, Any]]:
         self._ensure_configured()
-        async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.post(
-                f"{self.settings.supabase_rest_url}/rpc/{function}",
-                json=payload,
-                headers=self._headers(access_token),
-            )
+        response = await self.http.post(
+            f"{self.settings.supabase_rest_url}/rpc/{function}",
+            json=payload,
+            headers=self._headers(access_token),
+            timeout=30,
+        )
         data = self._json_or_raise(response)
         return data if isinstance(data, list) else [data]
 

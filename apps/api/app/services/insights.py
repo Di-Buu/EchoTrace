@@ -105,7 +105,10 @@ class InsightEngine:
                 "limit": "40",
             },
         )
-        if len(memories) < self.settings.auto_insight_min_memories:
+        if not memories:
+            return None
+        evidence = await self._evidence_from_memories(user, memories)
+        if len({item.moment_id for item in evidence}) < self.settings.auto_insight_min_memories:
             return None
         evidence_version = self._evidence_version(memories)
         cache_key = f"auto:{evidence_version}:{AGENT_VERSION}"
@@ -122,9 +125,6 @@ class InsightEngine:
         if cached:
             return cached[0]
 
-        evidence = await self._evidence_from_memories(user, memories)
-        if len({item.moment_id for item in evidence}) < 3:
-            return None
         route = AgentRoute(
             route_type="complex",
             specialists=["temporal", "pattern"],

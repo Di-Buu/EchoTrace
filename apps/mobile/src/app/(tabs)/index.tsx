@@ -79,7 +79,7 @@ export default function HollowScreen() {
     const content = draft.trim();
     if (!content || sending) return;
     setSending(true);
-    setNotice('');
+    setNotice(mode === 'capture' ? '正在保存…' : '正在听你说…');
     try {
       if (mode === 'capture') {
         const moment = await api.post<Moment>('/moments', {
@@ -109,6 +109,7 @@ export default function HollowScreen() {
         setThreadId(response.thread_id);
         setSourceMomentId(null);
         setMessages((current) => [...current, response.message]);
+        setNotice('');
         processMoment(response.moment_id);
       }
     } catch (error) {
