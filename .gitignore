@@ -12,10 +12,10 @@ node_modules/
 dist/
 web-build/
 coverage/
-evaluation/results/*.json
+evaluation/results/**
 !evaluation/results/.gitkeep
-evaluation/results/playwright-artifacts/
 evaluation/live-e2e.env
+evaluation/eval.env
 docs/
 apps/mobile/.claude/
 apps/mobile/AGENTS.md

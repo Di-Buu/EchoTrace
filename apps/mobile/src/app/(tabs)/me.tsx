@@ -23,6 +23,8 @@ export default function MeScreen() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState('');
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [confirmClear, setConfirmClear] = useState(false);
+  const [dataMessage, setDataMessage] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -52,6 +54,22 @@ export default function MeScreen() {
     await api.delete(`/memories/${memory.id}`);
     setMemories((current) => current.filter((item) => item.id !== memory.id));
     setConfirmDelete(null);
+  }
+
+  async function clearPersonalData() {
+    if (!confirmClear) {
+      setConfirmClear(true);
+      setDataMessage('这会删除全部时刻、对话、记忆和洞察。请再次点击确认。');
+      return;
+    }
+    try {
+      await api.delete('/account/data');
+      setMemories([]);
+      setConfirmClear(false);
+      setDataMessage('个人数据已清空，账号仍然保留。');
+    } catch {
+      setDataMessage('暂时无法清空数据，请稍后重试。');
+    }
   }
 
   return (
@@ -89,6 +107,13 @@ export default function MeScreen() {
         </View>
       ))}
 
+      <Text style={styles.sectionTitle}>隐私与数据</Text>
+      <Text style={styles.sectionHint}>你可以清空全部时刻、对话、长期记忆和洞察，登录账号会继续保留。</Text>
+      <Pressable onPress={clearPersonalData} style={styles.clearData}>
+        <Text style={styles.delete}>{confirmClear ? '再次点击确认清空' : '清空个人数据'}</Text>
+      </Pressable>
+      {dataMessage ? <Text style={styles.dataMessage}>{dataMessage}</Text> : null}
+
       <Text style={styles.sectionTitle}>账号</Text>
       <View style={styles.account}>
         <Ionicons name="person-circle-outline" size={32} color={colors.accent} />
@@ -115,6 +140,8 @@ const styles = StyleSheet.create({
   action: { color: colors.accent, fontSize: 13, fontWeight: '600' },
   actionMuted: { color: colors.muted, fontSize: 13 },
   delete: { color: colors.danger, fontSize: 13 },
+  clearData: { alignSelf: 'flex-start', paddingVertical: 10 },
+  dataMessage: { color: colors.muted, fontSize: 12, lineHeight: 19 },
   editInput: { marginTop: 8, borderWidth: 1, borderColor: colors.line, borderRadius: radii.small, padding: 10, color: colors.text, fontSize: 15, lineHeight: 23 },
   account: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 14 },
   email: { color: colors.text, fontSize: 15, flex: 1 },

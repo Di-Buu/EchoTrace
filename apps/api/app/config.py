@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -18,6 +19,18 @@ class Settings(BaseSettings):
     embedding_dimension: int = 1024
     auto_insight_min_memories: int = 4
     ai_timeout_seconds: float = Field(default=45.0, ge=5, le=180)
+    insight_execution_profile: Literal["local_quality", "online_demo"] = "local_quality"
+    insight_ai_timeout_seconds: float = Field(default=120.0, ge=10, le=300)
+    insight_enable_thinking: bool = True
+    vercel: bool = False
+
+    @property
+    def use_quality_insight_reasoning(self) -> bool:
+        return (
+            not self.vercel
+            and self.insight_execution_profile == "local_quality"
+            and self.insight_enable_thinking
+        )
 
     @property
     def supabase_rest_url(self) -> str:

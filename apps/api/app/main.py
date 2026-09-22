@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse
 from app.clients.ai import AiConfigurationError, AiResponseError
 from app.clients.supabase import SupabaseError
 from app.config import get_settings
-from app.routers import chat, insights, memories, moments, system
+from app.routers import account, chat, insights, memories, moments, system
 from app.services.retrieval import UserIsolationError
 
 settings = get_settings()
@@ -31,6 +31,7 @@ app.include_router(chat.router)
 app.include_router(memories.router)
 app.include_router(insights.router)
 app.include_router(system.router)
+app.include_router(account.router)
 
 
 @app.exception_handler(AiConfigurationError)

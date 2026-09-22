@@ -1,0 +1,30 @@
+{
+  "memory_curator": {
+    "current": "memory-curator-v1",
+    "reason": "Initial conservative long-term memory boundary with update, conflict, attribution and injection guards."
+  },
+  "companion": {
+    "current": "companion-v1",
+    "reason": "Current-context-first conversation with evidence-gated personal history."
+  },
+  "orchestrator": {
+    "current": "orchestrator-v1",
+    "reason": "Routes simple factual questions and complex temporal or pattern analysis."
+  },
+  "temporal": {
+    "current": "temporal-v1",
+    "reason": "Orders stages, changes and reversals without treating the newest record as the whole history."
+  },
+  "pattern": {
+    "current": "pattern-v1",
+    "reason": "Finds repetition and return signals while separating correlation from causation."
+  },
+  "verifier": {
+    "current": "verifier-v1",
+    "reason": "Rejects unsupported personal claims, temporal errors and strong over-inference."
+  },
+  "synthesizer": {
+    "current": "synthesizer-v1",
+    "reason": "Expresses only verified claims and preserves uncertainty for weak evidence."
+  }
+}

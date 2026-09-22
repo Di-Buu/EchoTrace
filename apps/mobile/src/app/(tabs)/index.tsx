@@ -78,6 +78,7 @@ export default function HollowScreen() {
   async function submit() {
     const content = draft.trim();
     if (!content || sending) return;
+    let optimisticId: string | null = null;
     setSending(true);
     setNotice(mode === 'capture' ? '正在保存…' : '正在听你说…');
     try {
@@ -92,8 +93,9 @@ export default function HollowScreen() {
         showSaved();
         processMoment(moment.id);
       } else {
+        optimisticId = `local-${Date.now()}`;
         const optimistic: LocalMessage = {
-          id: `local-${Date.now()}`,
+          id: optimisticId,
           role: 'user',
           content,
           evidence_moment_ids: [],
@@ -113,6 +115,9 @@ export default function HollowScreen() {
         processMoment(response.moment_id);
       }
     } catch (error) {
+      if (optimisticId) {
+        setMessages((current) => current.filter((message) => message.id !== optimisticId));
+      }
       setDraft(content);
       setNotice(error instanceof ApiError ? error.message : '刚刚没接住，再说一次？');
     } finally {

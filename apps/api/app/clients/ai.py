@@ -46,6 +46,9 @@ class BailianClient:
         user: str,
         schema: type[T],
         temperature: float = 0.1,
+        enable_thinking: bool = False,
+        max_tokens: int = 4000,
+        timeout_seconds: float | None = None,
     ) -> tuple[T, dict[str, Any]]:
         self._require("chat_model")
         started = time.perf_counter()
@@ -65,15 +68,20 @@ class BailianClient:
             "model": self.settings.chat_model,
             "messages": messages,
             "temperature": temperature,
-            # Qwen 3.7 defaults to thinking mode. Structured extraction does not
-            # benefit from long hidden reasoning and must stay responsive in V1.
-            "enable_thinking": False,
-            "max_tokens": 4000,
+            "enable_thinking": enable_thinking,
+            "max_tokens": max_tokens,
             "response_format": {"type": "json_object"},
         }
         total_usage: dict[str, int | float] = {}
         for validation_attempt in range(2):
-            data = await self._post_json("/chat/completions", payload)
+            if timeout_seconds is None:
+                data = await self._post_json("/chat/completions", payload)
+            else:
+                data = await self._post_json(
+                    "/chat/completions",
+                    payload,
+                    timeout_seconds=timeout_seconds,
+                )
             self._add_usage(total_usage, data.get("usage", {}))
             content = self._message_content(data)
             try:
@@ -98,6 +106,7 @@ class BailianClient:
             metadata = self._metadata(data, started)
             metadata["usage"] = total_usage
             metadata["validation_retry_count"] = validation_attempt
+            metadata["thinking_enabled"] = enable_thinking
             return result, metadata
         raise AiResponseError("模型返回未通过结构校验")
 
@@ -117,7 +126,13 @@ class BailianClient:
         data = await self._post_json("/chat/completions", payload)
         return self._message_content(data), self._metadata(data, started)
 
-    async def _post_json(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
+    async def _post_json(
+        self,
+        path: str,
+        payload: dict[str, Any],
+        *,
+        timeout_seconds: float | None = None,
+    ) -> dict[str, Any]:
         if not self.settings.dashscope_api_key:
             raise AiConfigurationError("DASHSCOPE_API_KEY 尚未配置")
         headers = {
@@ -125,7 +140,8 @@ class BailianClient:
             "Content-Type": "application/json",
         }
         response: httpx.Response | None = None
-        async with httpx.AsyncClient(timeout=self.settings.ai_timeout_seconds) as client:
+        timeout = timeout_seconds or self.settings.ai_timeout_seconds
+        async with httpx.AsyncClient(timeout=timeout) as client:
             for attempt in range(3):
                 try:
                     response = await client.post(

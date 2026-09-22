@@ -109,10 +109,35 @@ async def set_memory_enabled(moment_id: UUID, enabled: bool, user: CurrentUser, 
             params={"select": "memory_id", "moment_id": f"eq.{moment_id}"},
         )
         for source in sources:
+            related_sources = await db.select(
+                "memory_sources",
+                user.access_token,
+                params={"select": "moment_id", "memory_id": f"eq.{source['memory_id']}"},
+            )
+            other_ids = [
+                str(item["moment_id"])
+                for item in related_sources
+                if str(item["moment_id"]) != str(moment_id)
+            ]
+            enabled_sources = []
+            if other_ids:
+                enabled_sources = await db.select(
+                    "moments",
+                    user.access_token,
+                    params={
+                        "select": "id",
+                        "id": f"in.({','.join(other_ids)})",
+                        "user_id": f"eq.{user.id}",
+                        "memory_enabled": "eq.true",
+                    },
+                )
             await db.update(
                 "memories",
                 user.access_token,
-                {"status": "deleted"},
+                # A merged Memory may still have valid sources, but its wording may
+                # depend on the disabled Moment. Keep it visible for correction while
+                # excluding it from retrieval until it is curated again.
+                {"status": "disputed" if enabled_sources else "deleted"},
                 params={"id": f"eq.{source['memory_id']}", "user_id": f"eq.{user.id}"},
             )
         await db.update(

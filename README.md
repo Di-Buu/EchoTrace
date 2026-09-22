@@ -60,13 +60,15 @@ npx expo start
 
 当前本地基线：
 
-- Python/API/安全测试：16/16 通过
+- Python/API/安全测试：22/22 通过
 - Expo Doctor：21/21 通过
-- Memory Curator：24/24 受控 Case 通过
-- Embedding Retrieval：15/15，Recall@3=1.0，MRR=0.9333
-- Insight / Bad Case：12/12，Grounded Claim Rate=1.0
+- 历史组件级 Memory Curator：24/24 受控 Case 通过
+- 历史组件级 Embedding Retrieval：15/15，Recall@3=1.0，MRR=0.9333
+- 历史组件级 Insight / Bad Case：12/12，Grounded Claim Rate=1.0
 
-模型评测共 51 条受控 Case，覆盖一次性情绪、引用污染、更新/冲突、重复记忆、语义改写、硬负例、时间变化、重复模式、反证、证据不足和 Prompt Injection。它们是小规模 V1 基线，不代表线上大样本效果；评测脚本和测试集位于 `evaluation/`，原始调用报告仅保存在本地。
+上述 51 条结果是真实模型调用，但只代表早期组件级基线，不等同于完整产品 Workflow 的正式效果。
+
+当前正式 Evaluation 已重构为 36 个产品场景，重点评估长期记忆、无依据个人事实、时间关系、Insight Evidence、Over-inference 与 Bad Case Regression。支持重试、超时、断点、成功缓存、单 Case/分类筛选、LLM Judge 和人工 Review 分流。正式全量 Evaluation 尚未执行。
 
 运行方式：
 
@@ -76,6 +78,14 @@ cd apps/api
 .\.venv\Scripts\python.exe -m ruff check app tests ..\..\evaluation
 .\.venv\Scripts\python.exe ..\..\evaluation\run_evaluation.py --suite all
 ```
+
+正式产品效果评测在项目根目录运行：
+
+```powershell
+.\apps\api\.venv\Scripts\python.exe evaluation\run_eval.py
+```
+
+详细配置、筛选方式和输出说明见 `evaluation/README.md`。
 
 ### 公网黑盒验收
 

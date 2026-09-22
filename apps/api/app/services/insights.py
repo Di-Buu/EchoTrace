@@ -83,7 +83,13 @@ class InsightEngine:
             trace_id=trace_id,
             details={"route_type": route.route_type, "specialist_count": len(route.specialists)},
         )
-        evidence = await self.retriever.search(user, route.retrieval_query, limit=18, trace_id=trace_id)
+        evidence = await self.retriever.search(
+            user,
+            route.retrieval_query,
+            limit=18,
+            temporal_coverage=route.route_type == "complex" or "temporal" in route.specialists,
+            trace_id=trace_id,
+        )
         return await self._analyze_and_store(
             user=user,
             question=question,
@@ -212,6 +218,7 @@ class InsightEngine:
             ),
             schema=SynthesisOutput,
             temperature=0.2,
+            **self._quality_reasoning_options(),
         )
         await self._trace(
             user,
@@ -311,6 +318,7 @@ class InsightEngine:
             ),
             schema=SpecialistOutput,
             temperature=0,
+            **self._quality_reasoning_options(),
         )
         await self._trace(
             user,
@@ -401,6 +409,7 @@ class InsightEngine:
             ),
             schema=VerifierOutput,
             temperature=0,
+            **self._quality_reasoning_options(),
         )
         await self._trace(
             user,
@@ -416,6 +425,17 @@ class InsightEngine:
             },
         )
         return output
+
+    def _quality_reasoning_options(self) -> dict:
+        return {
+            "enable_thinking": self.settings.use_quality_insight_reasoning,
+            "max_tokens": 6000,
+            "timeout_seconds": (
+                self.settings.insight_ai_timeout_seconds
+                if self.settings.use_quality_insight_reasoning
+                else self.settings.ai_timeout_seconds
+            ),
+        }
 
     async def _evidence_from_memories(self, user: UserContext, memories: list[dict]) -> list[RetrievedEvidence]:
         memory_ids = [str(item["id"]) for item in memories]

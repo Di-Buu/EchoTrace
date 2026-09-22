@@ -25,6 +25,9 @@ export default function MomentDetailScreen() {
     if (!moment) return;
     const next = await api.patch<Moment>(`/moments/${moment.id}/memory?enabled=${enabled}`);
     setMoment((current) => current ? { ...current, memory_enabled: next.memory_enabled } : current);
+    if (enabled) {
+      void api.post(`/moments/${moment.id}/process`).catch(() => undefined);
+    }
   }
 
   if (loading) return <Screen><StateMessage text="正在打开这一刻…" loading /></Screen>;

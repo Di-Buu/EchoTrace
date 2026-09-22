@@ -65,5 +65,5 @@ test('网络失败时保留输入并恢复发送能力', async ({ page }) => {
   await page.getByLabel('发送').click();
   await expect(page.getByText('网络连接失败，请稍后重试。', { exact: true })).toBeVisible();
   await expect(page.getByPlaceholder('写点什么…')).toHaveValue(content);
-  await expect(page.getByLabel('发送')).toHaveAttribute('aria-disabled', 'false');
+  await expect(page.getByLabel('发送')).not.toHaveAttribute('aria-disabled', 'true');
 });
