@@ -6,7 +6,7 @@ import { Screen } from '@/components/Screen';
 import { StateMessage } from '@/components/StateMessage';
 import { api } from '@/lib/api';
 import { colors, radii, spacing } from '@/lib/theme';
-import type { Insight } from '@/lib/types';
+import type { Insight, InsightEvidence } from '@/lib/types';
 
 export default function InsightDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -33,7 +33,23 @@ export default function InsightDetailScreen() {
   if (loading) return <Screen><StateMessage text="正在打开证据…" loading /></Screen>;
   if (!insight) return <Screen><StateMessage text="这条洞察已失效或不存在" /></Screen>;
 
-  const evidence = insight.insight_evidence ?? [];
+  const evidenceByMoment = new Map<string, {
+    record: InsightEvidence;
+    stances: Set<InsightEvidence['stance']>;
+  }>();
+  for (const item of insight.insight_evidence ?? []) {
+    const existing = evidenceByMoment.get(item.moment_id);
+    if (existing) {
+      existing.stances.add(item.stance);
+      if (!existing.record.moments && item.moments) existing.record = item;
+    } else {
+      evidenceByMoment.set(item.moment_id, {
+        record: item,
+        stances: new Set([item.stance]),
+      });
+    }
+  }
+  const evidence = [...evidenceByMoment.values()];
   return (
     <Screen scroll>
       <View style={styles.labelRow}>
@@ -45,9 +61,9 @@ export default function InsightDetailScreen() {
       {insight.limitation ? <Text style={styles.limitation}>{insight.limitation}</Text> : null}
 
       <Text style={styles.sectionTitle}>来自这些时刻</Text>
-      {!evidence.length ? <Text style={styles.muted}>证据正在整理中。</Text> : evidence.map((item) => (
+      {!evidence.length ? <Text style={styles.muted}>证据正在整理中。</Text> : evidence.map(({ record: item, stances }) => (
         <Pressable
-          key={`${item.moment_id}-${item.stance}`}
+          key={item.moment_id}
           onPress={() => {
             void api.event('evidence_opened', { insight_id: insight.id, moment_id: item.moment_id }).catch(() => undefined);
             router.push({ pathname: '/moments/[id]', params: { id: item.moment_id } });
@@ -56,7 +72,9 @@ export default function InsightDetailScreen() {
         >
           <Text style={styles.evidenceDate}>{item.moments ? new Date(item.moments.created_at).toLocaleDateString('zh-CN') : '查看原始时刻'}</Text>
           <Text numberOfLines={4} style={styles.evidenceText}>{item.moments?.content ?? `证据 ${item.moment_id.slice(0, 8)}`}</Text>
-          <Text style={styles.stance}>{item.stance === 'counter' ? '可能的反例' : '支持证据'} · 查看原文</Text>
+          <Text style={styles.stance}>
+            {stances.size > 1 ? '涉及支持与反例' : item.stance === 'counter' ? '可能的反例' : '支持证据'} · 查看原文
+          </Text>
         </Pressable>
       ))}
 
