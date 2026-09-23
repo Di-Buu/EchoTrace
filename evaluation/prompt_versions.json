@@ -24,11 +24,11 @@
     "reason": "Finds repetition and return signals while separating correlation from causation."
   },
   "verifier": {
-    "current": "verifier-v1",
-    "reason": "Rejects unsupported personal claims, temporal errors and strong over-inference."
+    "current": "verifier-v1.1",
+    "reason": "Checks unsupported motives, causal strength and event frequency in addition to grounding."
   },
   "synthesizer": {
-    "current": "synthesizer-v1",
-    "reason": "Expresses only verified claims and preserves uncertainty for weak evidence."
+    "current": "synthesizer-v1.1",
+    "reason": "Avoids adding motives, causality or frequency labels beyond verified evidence."
   }
 }
