@@ -23,3 +23,4 @@ apps/mobile/CLAUDE.md
 apps/mobile/LICENSE
 .DS_Store
 Thumbs.db
+.vscode/
