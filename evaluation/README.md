@@ -2,7 +2,7 @@
 
 本目录包含两套不同用途的工具：
 
-- `run_eval.py` + `scenarios.jsonl`：当前正式产品效果评测入口。
+- `run_eval.py` + `scenarios.jsonl`：当前产品效果评测入口；新记忆架构的 9 条旧 Curator Case 已改为原文长期召回 Case。
 - `run_evaluation.py` + `cases.json`：早期组件级基线，保留用于追溯，不再作为正式产品结论。
 - `run_live_e2e.py`：公网 Demo 黑盒验收，不作为本地质量版效果评测。
 
@@ -87,4 +87,12 @@ python evaluation/run_eval.py --force
 
 ## 当前执行状态
 
-已使用 3 个场景完成工程 dry run，验证了 Memory、Companion、完整 Insight、Judge、报告生成和成功缓存。该 dry run 不是正式全量 Evaluation，不能作为最终产品指标。正式 36-Case 全量评测尚未执行。
+新记忆架构已完成最小真实工程冒烟：
+
+- `memory_stable_interest`：原始 Moment 索引与长期召回通过；
+- `personal_fact_supported_running`：Companion 使用原始证据通过；
+- `temporal_reading_habit`：完整 Temporal / Pattern / Verifier / Synthesizer 链路结束，规则检查通过，按设计进入人工 review；
+- `run_weekly_smoke.py`：保存后后台索引、两条记录周摘要和两个原始 Evidence 来源通过；
+- 本地 Web 3 条自动化通过：真实保存与历史、保存中反馈、网络失败恢复。
+
+以上只证明工程链路能够真实运行，不是正式产品效果指标。LLM Judge 未在本轮冒烟中运行，正式 36-Case 全量评测仍未执行。

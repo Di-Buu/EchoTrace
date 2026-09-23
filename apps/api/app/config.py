@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     embedding_model: str = ""
     embedding_dimension: int = 1024
     auto_insight_min_memories: int = 4
+    weekly_insight_min_total_moments: int = Field(default=8, ge=2, le=100)
+    weekly_insight_min_new_moments: int = Field(default=2, ge=1, le=50)
     ai_timeout_seconds: float = Field(default=45.0, ge=5, le=180)
     insight_execution_profile: Literal["local_quality", "online_demo"] = "local_quality"
     insight_ai_timeout_seconds: float = Field(default=120.0, ge=10, le=300)

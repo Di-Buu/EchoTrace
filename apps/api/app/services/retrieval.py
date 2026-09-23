@@ -1,9 +1,10 @@
+import asyncio
 from datetime import datetime
 
 from app.clients.ai import BailianClient
 from app.clients.supabase import SupabaseClient
 from app.domain import RetrievedEvidence, UserContext
-from app.prompts import MEMORY_CURATOR_VERSION
+from app.services.evidence_scope import eligible_moment_ids
 from app.services.telemetry import Telemetry
 
 
@@ -27,36 +28,46 @@ class PersonalMemoryRetriever:
         temporal_coverage: bool = False,
         trace_id: str | None = None,
     ) -> list[RetrievedEvidence]:
-        active = await self.db.select(
-            "memories",
-            user.access_token,
-            params={"select": "id", "status": "eq.active", "limit": "1"},
-        )
-        if not active:
-            return []
-
         vector, metadata = await self.ai.embedding(query)
         requested_count = min(30, max(limit, 24)) if temporal_coverage else limit
-        rows = await self.db.rpc(
-            "search_personal_memory",
-            user.access_token,
-            {
-                "p_query_text": query,
-                "p_query_embedding": vector,
-                "p_match_count": requested_count,
-                "p_from": time_from.isoformat() if time_from else None,
-                "p_to": time_to.isoformat() if time_to else None,
-            },
+        common = {
+            "p_query_text": query,
+            "p_query_embedding": vector,
+            "p_match_count": requested_count,
+            "p_from": time_from.isoformat() if time_from else None,
+            "p_to": time_to.isoformat() if time_to else None,
+        }
+        raw_rows, legacy_rows, cards = await asyncio.gather(
+            self.db.rpc("search_personal_moment", user.access_token, common),
+            self.db.rpc("search_personal_memory", user.access_token, common),
+            self.db.rpc(
+                "search_weekly_summary_card",
+                user.access_token,
+                {
+                    "p_query_text": query,
+                    "p_query_embedding": vector,
+                    "p_match_count": 6,
+                },
+            ),
         )
+        summary_rows = await self._expand_summary_cards(user, cards, time_from, time_to)
+        by_moment: dict[str, dict] = {}
+        for row in [*raw_rows, *legacy_rows, *summary_rows]:
+            key = str(row["moment_id"])
+            if key not in by_moment or float(row.get("score", 0)) > float(by_moment[key].get("score", 0)):
+                by_moment[key] = row
+        rows = sorted(by_moment.values(), key=lambda item: float(item.get("score", 0)), reverse=True)
         if temporal_coverage:
             rows = self._diversify_time(rows, limit)
+        else:
+            rows = rows[:limit]
         moment_ids = {str(row["moment_id"]) for row in rows}
         await self._verify_owner(user, moment_ids)
         evidence = [RetrievedEvidence.model_validate(row) for row in rows]
         await Telemetry(self.db, user.access_token, user.id).ai_run(
             task_type="retrieval",
             agent_name="personal_memory_rag",
-            prompt_version=MEMORY_CURATOR_VERSION,
+            prompt_version="evidence-retrieval-v2",
             metadata=metadata,
             retrieval_candidates=len(rows),
             evidence_count=len(moment_ids),
@@ -66,10 +77,59 @@ class PersonalMemoryRetriever:
                 "time_filter_applied": bool(time_from or time_to),
                 "temporal_coverage": temporal_coverage,
                 "requested_count": requested_count,
+                "raw_candidates": len(raw_rows),
+                "summary_candidates": len(cards),
                 "embedding_dimension": len(vector),
             },
         )
         return evidence
+
+    async def _expand_summary_cards(
+        self,
+        user: UserContext,
+        cards: list[dict],
+        time_from: datetime | None,
+        time_to: datetime | None,
+    ) -> list[dict]:
+        ids = {str(source_id) for card in cards for source_id in card.get("source_moment_ids", [])}
+        if not ids:
+            return []
+        moments = await self.db.select(
+            "moments",
+            user.access_token,
+            params={
+                "select": "id,user_id,content,created_at",
+                "id": f"in.({','.join(sorted(ids))})",
+                "user_id": f"eq.{user.id}",
+                "memory_enabled": "eq.true",
+            },
+        )
+        permitted = await eligible_moment_ids(self.db, user, ids)
+        by_id = {str(item["id"]): item for item in moments}
+        rows = []
+        for card in cards:
+            for source_id in card.get("source_moment_ids", []):
+                moment = by_id.get(str(source_id))
+                if not moment or str(source_id) not in permitted:
+                    continue
+                occurred_at = datetime.fromisoformat(moment["created_at"].replace("Z", "+00:00"))
+                if time_from and occurred_at < time_from:
+                    continue
+                if time_to and occurred_at >= time_to:
+                    continue
+                rows.append(
+                    {
+                        "memory_id": None,
+                        "memory_content": card["summary"],
+                        "memory_type": "weekly_summary",
+                        "confidence": 1.0,
+                        "moment_id": moment["id"],
+                        "moment_content": moment["content"],
+                        "occurred_at": moment["created_at"],
+                        "score": float(card.get("score", 0)) * 0.9,
+                    }
+                )
+        return rows
 
     @staticmethod
     def _diversify_time(rows: list[dict], limit: int) -> list[dict]:

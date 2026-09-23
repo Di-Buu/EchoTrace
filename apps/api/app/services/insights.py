@@ -99,6 +99,46 @@ class InsightEngine:
             trace_id=trace_id,
         )
 
+    async def generate_weekly(
+        self,
+        user: UserContext,
+        evidence: list[RetrievedEvidence],
+        *,
+        week_start: str,
+        evidence_version: str,
+    ) -> dict:
+        cache_key = f"weekly:{week_start}:{evidence_version}:{AGENT_VERSION}"
+        cached = await self.db.select(
+            "insights",
+            user.access_token,
+            params={
+                "select": "*,insight_evidence(moment_id,memory_id,stance)",
+                "user_id": f"eq.{user.id}",
+                "cache_key": f"eq.{cache_key}",
+                "status": "eq.active",
+                "limit": "1",
+            },
+        )
+        if cached:
+            return cached[0]
+        route = AgentRoute(
+            route_type="complex",
+            specialists=["temporal", "pattern"],
+            insight_type="temporal_change",
+            retrieval_query="weekly-evidence",
+            reasoning="每周一次：只寻找有原始记录支持的变化或重复。",
+        )
+        return await self._analyze_and_store(
+            user=user,
+            question="本周的记录与过去相比，有没有值得回看的变化、重复或尚未解决的问题？证据不足时不生成结论。",
+            route=route,
+            evidence=evidence,
+            trigger_type="automatic",
+            cache_key=cache_key,
+            evidence_version=evidence_version,
+            trace_id=str(uuid4()),
+        )
+
     async def maybe_generate_automatic(self, user: UserContext) -> dict | None:
         memories = await self.db.select(
             "memories",
@@ -258,7 +298,8 @@ class InsightEngine:
 
         memory_by_moment: dict[str, str] = {}
         for item in evidence:
-            memory_by_moment.setdefault(str(item.moment_id), str(item.memory_id))
+            if item.memory_id:
+                memory_by_moment.setdefault(str(item.moment_id), str(item.memory_id))
         evidence_rows = []
         for claim in accepted:
             for moment_id in claim.source_moment_ids:
@@ -501,7 +542,7 @@ class InsightEngine:
             )
             row["memories"].append(
                 {
-                    "memory_id": str(item.memory_id),
+                    "memory_id": str(item.memory_id) if item.memory_id else None,
                     "content": item.memory_content,
                     "type": item.memory_type,
                     "confidence": item.confidence,

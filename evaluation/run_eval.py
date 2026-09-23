@@ -96,8 +96,10 @@ def git_metadata() -> dict[str, Any]:
             check=False,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
-        return result.stdout.strip()
+        return (result.stdout or "").strip()
 
     status = run("status", "--short")
     diff = run("diff", "--no-ext-diff", "HEAD")
@@ -207,7 +209,7 @@ class ProductClient:
         data = self._decode(response)
         if response.status_code >= 400:
             raise EvaluationError(f"初始化 Moment 失败: {self._safe(data)}")
-        return [str(item["id"]) for item in payload if item["memory_enabled"]]
+        return [str(item["id"]) for item in payload]
 
     @staticmethod
     def _decode(response: httpx.Response) -> Any:
@@ -227,16 +229,16 @@ async def execute_workflow(client: ProductClient, case: dict[str, Any]) -> dict[
     await client.clear_data()
     moment_ids = await client.seed_history(case["case_id"], case["history"])
     process_results = []
-    for moment_id in moment_ids:
+    for moment_id, item in zip(moment_ids, case["history"], strict=True):
+        if not item.get("memory_enabled", True):
+            continue
         status, payload = await client.api("POST", f"/moments/{moment_id}/process")
         if status != 200:
-            raise EvaluationError(f"Memory Curator 失败 ({status}): {ProductClient._safe(payload)}")
+            raise EvaluationError(f"Moment 原文索引失败 ({status}): {ProductClient._safe(payload)}")
         process_results.append(payload)
 
     workflow = case["workflow"]
-    if workflow == "memory":
-        status, output = await client.api("GET", "/memories")
-    elif workflow == "companion":
+    if workflow == "companion":
         status, output = await client.api(
             "POST",
             "/chat",
@@ -247,7 +249,7 @@ async def execute_workflow(client: ProductClient, case: dict[str, Any]) -> dict[
                 "input_type": "text",
             },
         )
-    elif workflow == "insight":
+    elif workflow in {"insight", "memory_retrieval"}:
         status, output = await client.api("POST", "/insights/query", {"question": case["request"]})
     else:
         raise EvaluationError(f"不支持的 workflow: {workflow}")
@@ -269,18 +271,22 @@ def flatten_text(value: Any) -> str:
     return ""
 
 
+def candidate_text(workflow: str, output: Any) -> str:
+    """Score the generated answer, never the question or quoted source evidence."""
+    if not isinstance(output, dict):
+        return flatten_text(output)
+    if workflow == "companion":
+        message = output.get("message") or {}
+        return str(message.get("content", "")) if isinstance(message, dict) else ""
+    if workflow in {"insight", "memory_retrieval"}:
+        return " ".join(str(output.get(field) or "") for field in ("title", "body", "limitation"))
+    return ""
+
+
 def evidence_count(workflow: str, output: Any) -> int:
-    if workflow == "memory" and isinstance(output, list):
-        return len(
-            {
-                str(source.get("moment_id"))
-                for memory in output
-                for source in memory.get("memory_sources", [])
-            }
-        )
     if workflow == "companion" and isinstance(output, dict):
         return len(set(output.get("evidence_moment_ids", [])))
-    if workflow == "insight" and isinstance(output, dict):
+    if workflow in {"insight", "memory_retrieval"} and isinstance(output, dict):
         evidence = output.get("evidence") or output.get("insight_evidence") or []
         return len({str(item.get("moment_id")) for item in evidence})
     return 0
@@ -290,7 +296,7 @@ def rule_judge(case: dict[str, Any], execution: dict[str, Any]) -> dict[str, Any
     expected = case["expected"]
     output = execution["output"]
     status = execution["http_status"]
-    text = flatten_text(output)
+    text = candidate_text(case["workflow"], output)
     checks: list[dict[str, Any]] = []
 
     def add(name: str, passed: bool, actual: Any = None) -> None:
@@ -309,14 +315,6 @@ def rule_judge(case: dict[str, Any], execution: dict[str, Any]) -> dict[str, Any
     if expected.get("require_no_long_term"):
         used = bool(output.get("used_long_term_memory")) if isinstance(output, dict) else False
         add("no_long_term_memory", not used, used)
-
-    if case["workflow"] == "memory" and isinstance(output, list):
-        should_create = expected.get("should_create_memory", True)
-        add("memory_created", bool(output) == should_create, len(output))
-        expected_types = set(expected.get("memory_types", []))
-        if expected_types and output:
-            actual_types = {str(item.get("memory_type")) for item in output}
-            add("memory_type", bool(actual_types & expected_types), sorted(actual_types))
 
     return {
         "passed": all(item["passed"] for item in checks),
@@ -343,6 +341,7 @@ async def llm_judge(ai: BailianClient, case: dict[str, Any], execution: dict[str
         "user_request": case["request"],
         "expected": case["expected"],
         "candidate": execution["output"],
+        "user_facing_text": candidate_text(case["workflow"], execution["output"]),
         "id_note": (
             "历史证据只能引用 history 中的 moment_id。Companion 顶层 moment_id 是本轮新消息，"
             "不能用它否定 evidence_moment_ids。"
@@ -569,7 +568,8 @@ async def async_main() -> int:
         "execution_profile": settings.insight_execution_profile,
         "insight_thinking": settings.use_quality_insight_reasoning,
         "insight_timeout_seconds": settings.insight_ai_timeout_seconds,
-        "auto_insight_min_memories": settings.auto_insight_min_memories,
+        "weekly_insight_min_total_moments": settings.weekly_insight_min_total_moments,
+        "weekly_insight_min_new_moments": settings.weekly_insight_min_new_moments,
         "prompt_versions": PROMPT_VERSIONS,
         "judge_version": JUDGE_VERSION,
     }

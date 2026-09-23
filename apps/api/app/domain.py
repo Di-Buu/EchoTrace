@@ -85,8 +85,22 @@ class CuratorOutput(ApiModel):
     memories: list[MemoryCandidate] = Field(default_factory=list, max_length=8)
 
 
+class WeeklyTopicCard(ApiModel):
+    topic: str = Field(min_length=1, max_length=80)
+    summary: str = Field(min_length=1, max_length=1_000)
+    source_moment_ids: list[UUID] = Field(min_length=1)
+    counter_moment_ids: list[UUID] = Field(default_factory=list)
+    time_start: datetime | None = None
+    time_end: datetime | None = None
+
+
+class WeeklyDigestOutput(ApiModel):
+    cards: list[WeeklyTopicCard] = Field(default_factory=list, max_length=12)
+    ungrouped_moment_ids: list[UUID] = Field(default_factory=list)
+
+
 class RetrievedEvidence(ApiModel):
-    memory_id: UUID
+    memory_id: UUID | None = None
     memory_content: str
     memory_type: str
     confidence: float

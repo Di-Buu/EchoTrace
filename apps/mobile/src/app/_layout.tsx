@@ -24,6 +24,7 @@ function RootNavigator() {
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="moments" />
         <Stack.Screen name="insight" />
+        <Stack.Screen name="weekly-report" />
       </Stack.Protected>
     </Stack>
   );
@@ -43,4 +44,3 @@ export default function RootLayout() {
 const styles = StyleSheet.create({
   loading: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.background },
 });
-

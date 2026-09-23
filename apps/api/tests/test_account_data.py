@@ -28,5 +28,7 @@ async def test_delete_personal_data_uses_current_user_scope_and_dependency_order
     result = await delete_personal_data(user, db)  # type: ignore[arg-type]
 
     assert result["ok"] is True
-    assert db.tables[-3:] == ["threads", "memories", "moments"]
+    assert db.tables[-4:] == ["threads", "memories", "moment_index_chunks", "moments"]
+    assert db.tables.index("weekly_summary_cards") < db.tables.index("weekly_reports")
+    assert db.tables.index("weekly_reports") < db.tables.index("insights")
     assert all(count == 1 for count in result["deleted"].values())

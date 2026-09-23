@@ -1,18 +1,27 @@
 import asyncio
+from datetime import datetime
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 
+from app.config import get_settings
 from app.dependencies import CurrentUser, Database
 from app.domain import MomentCreate
-from app.service_dependencies import Curator
+from app.service_dependencies import Indexer
+from app.services.moment_index import run_moment_index_job
 from app.services.telemetry import Telemetry
+from app.services.weekly import REPORT_ZONE, week_start_for
 
 router = APIRouter(prefix="/moments", tags=["moments"])
 
 
 @router.post("")
-async def create_moment(payload: MomentCreate, user: CurrentUser, db: Database) -> dict:
+async def create_moment(
+    payload: MomentCreate,
+    user: CurrentUser,
+    db: Database,
+    background_tasks: BackgroundTasks,
+) -> dict:
     rows = await db.insert(
         "moments",
         user.access_token,
@@ -41,6 +50,13 @@ async def create_moment(payload: MomentCreate, user: CurrentUser, db: Database) 
             properties={"input_type": payload.input_type},
         ),
     )
+    if payload.memory_enabled:
+        background_tasks.add_task(
+            run_moment_index_job,
+            user,
+            UUID(moment["id"]),
+            get_settings(),
+        )
     return moment
 
 
@@ -60,6 +76,32 @@ async def list_moments(
             "limit": str(limit),
         },
     )
+
+
+@router.post("/index-pending")
+async def index_pending_moments(
+    user: CurrentUser,
+    db: Database,
+    indexer: Indexer,
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+) -> dict:
+    moments = await db.select(
+        "moments",
+        user.access_token,
+        params={
+            "select": "id",
+            "user_id": f"eq.{user.id}",
+            "memory_enabled": "eq.true",
+            "order": "created_at.asc",
+            "limit": str(limit),
+            "offset": str(offset),
+        },
+    )
+    indexed = 0
+    for moment in moments:
+        indexed += await indexer.index_moment(user, UUID(moment["id"]))
+    return {"moments_checked": len(moments), "chunks_available": indexed, "next_offset": offset + len(moments)}
 
 
 @router.get("/{moment_id}")
@@ -102,43 +144,38 @@ async def set_memory_enabled(moment_id: UUID, enabled: bool, user: CurrentUser, 
     )
     if not rows:
         raise HTTPException(404, "Moment 不存在")
+    moment_week = week_start_for(
+        datetime.fromisoformat(rows[0]["created_at"].replace("Z", "+00:00")).astimezone(REPORT_ZONE).date()
+    )
+    await db.update(
+        "weekly_reports",
+        user.access_token,
+        {"status": "stale"},
+        params={"week_start": f"eq.{moment_week.isoformat()}", "user_id": f"eq.{user.id}"},
+    )
     if not enabled:
+        await db.delete(
+            "moment_index_chunks",
+            user.access_token,
+            params={"moment_id": f"eq.{moment_id}", "user_id": f"eq.{user.id}"},
+        )
         sources = await db.select(
             "memory_sources",
             user.access_token,
             params={"select": "memory_id", "moment_id": f"eq.{moment_id}"},
         )
         for source in sources:
-            related_sources = await db.select(
-                "memory_sources",
-                user.access_token,
-                params={"select": "moment_id", "memory_id": f"eq.{source['memory_id']}"},
-            )
-            other_ids = [
-                str(item["moment_id"])
-                for item in related_sources
-                if str(item["moment_id"]) != str(moment_id)
-            ]
-            enabled_sources = []
-            if other_ids:
-                enabled_sources = await db.select(
-                    "moments",
-                    user.access_token,
-                    params={
-                        "select": "id",
-                        "id": f"in.({','.join(other_ids)})",
-                        "user_id": f"eq.{user.id}",
-                        "memory_enabled": "eq.true",
-                    },
-                )
             await db.update(
                 "memories",
                 user.access_token,
-                # A merged Memory may still have valid sources, but its wording may
-                # depend on the disabled Moment. Keep it visible for correction while
-                # excluding it from retrieval until it is curated again.
-                {"status": "disputed" if enabled_sources else "deleted"},
-                params={"id": f"eq.{source['memory_id']}", "user_id": f"eq.{user.id}"},
+                # Opting a Moment out is reversible. Explicit deletion of an old
+                # Memory is distinct and still respected by evidence_scope.
+                {"status": "disputed"},
+                params={
+                    "id": f"eq.{source['memory_id']}",
+                    "user_id": f"eq.{user.id}",
+                    "status": "eq.active",
+                },
             )
         await db.update(
             "insights",
@@ -153,10 +190,10 @@ async def set_memory_enabled(moment_id: UUID, enabled: bool, user: CurrentUser, 
 async def process_moment(
     moment_id: UUID,
     user: CurrentUser,
-    curator: Curator,
+    indexer: Indexer,
 ) -> dict:
     try:
-        memories = await curator.process_moment(user, moment_id)
-        return {"memories_created": len(memories), "insight_refresh_recommended": bool(memories)}
+        chunks = await indexer.index_moment(user, moment_id)
+        return {"indexed_chunks": chunks, "memories_created": 0, "insight_refresh_recommended": False}
     except LookupError as exc:
         raise HTTPException(404, str(exc)) from exc

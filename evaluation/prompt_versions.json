@@ -1,7 +1,11 @@
 {
   "memory_curator": {
     "current": "memory-curator-v1",
-    "reason": "Initial conservative long-term memory boundary with update, conflict, attribution and injection guards."
+    "reason": "Legacy-only. New Moment ingestion no longer gates source preservation through Curator."
+  },
+  "weekly_digest": {
+    "current": "weekly-evidence-digest-v1",
+    "reason": "First evidence-linked periodic summary; preserves one-off emotion and counterexamples without replacing raw Moments."
   },
   "companion": {
     "current": "companion-v1",

@@ -9,6 +9,7 @@ from app.dependencies import get_db
 from app.services.companion import CompanionService
 from app.services.insights import InsightEngine
 from app.services.memory import MemoryCurator
+from app.services.moment_index import MomentIndexer
 from app.services.retrieval import PersonalMemoryRetriever
 
 
@@ -30,6 +31,13 @@ def get_curator(
     return MemoryCurator(db, ai)
 
 
+def get_indexer(
+    db: Annotated[SupabaseClient, Depends(get_db)],
+    ai: Annotated[BailianClient, Depends(get_ai)],
+) -> MomentIndexer:
+    return MomentIndexer(db, ai)
+
+
 def get_companion(
     db: Annotated[SupabaseClient, Depends(get_db)],
     ai: Annotated[BailianClient, Depends(get_ai)],
@@ -49,5 +57,6 @@ def get_insight_engine(
 
 AiClient = Annotated[BailianClient, Depends(get_ai)]
 Curator = Annotated[MemoryCurator, Depends(get_curator)]
+Indexer = Annotated[MomentIndexer, Depends(get_indexer)]
 Companion = Annotated[CompanionService, Depends(get_companion)]
 Insights = Annotated[InsightEngine, Depends(get_insight_engine)]

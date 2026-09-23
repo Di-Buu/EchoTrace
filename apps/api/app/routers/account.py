@@ -11,6 +11,8 @@ async def delete_personal_data(user: CurrentUser, db: Database) -> dict:
     tables = (
         "ai_runs",
         "product_events",
+        "weekly_summary_cards",
+        "weekly_reports",
         "insight_evidence",
         "insights",
         "insight_candidates",
@@ -18,6 +20,7 @@ async def delete_personal_data(user: CurrentUser, db: Database) -> dict:
         "thread_messages",
         "threads",
         "memories",
+        "moment_index_chunks",
         "moments",
     )
     deleted: dict[str, int] = {}

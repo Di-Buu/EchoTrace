@@ -1,5 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useFocusEffect } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
@@ -75,13 +75,17 @@ export default function MeScreen() {
   return (
     <Screen scroll>
       <Text style={styles.title}>我的</Text>
-      <Text style={styles.sectionTitle}>AI 记得什么</Text>
-      <Text style={styles.sectionHint}>这些理解来自你留下的时刻。你可以纠正或删除。</Text>
+      <Text style={styles.sectionTitle}>长期记录</Text>
+      <Text style={styles.sectionHint}>开启记忆的时刻会保留原文并用于按需检索；每周回顾会整理主题，但不会代替原文。</Text>
+      <Pressable onPress={() => router.push('/moments')} style={styles.clearData}>
+        <Text style={styles.action}>查看和管理时刻 →</Text>
+      </Pressable>
+      {memories.length ? (
+        <Text style={styles.sectionHint}>以下是旧版已提炼的记忆，你仍可以纠正或删除。</Text>
+      ) : null}
       {loading ? <StateMessage text="正在读取记忆…" loading /> : loadError ? (
         <StateMessage text={loadError} />
-      ) : !memories.length ? (
-        <View style={styles.emptyMemory}><Text style={styles.emptyText}>还没有形成长期记忆</Text></View>
-      ) : memories.map((memory) => (
+      ) : !memories.length ? null : memories.map((memory) => (
         <View key={memory.id} style={styles.memory}>
           <View style={styles.memoryHeader}>
             <Text style={styles.type}>{typeLabel[memory.memory_type] ?? '记忆'}</Text>
@@ -108,7 +112,7 @@ export default function MeScreen() {
       ))}
 
       <Text style={styles.sectionTitle}>隐私与数据</Text>
-      <Text style={styles.sectionHint}>你可以清空全部时刻、对话、长期记忆和洞察，登录账号会继续保留。</Text>
+      <Text style={styles.sectionHint}>你可以清空全部时刻、对话、索引、周报和洞察，登录账号会继续保留。</Text>
       <Pressable onPress={clearPersonalData} style={styles.clearData}>
         <Text style={styles.delete}>{confirmClear ? '再次点击确认清空' : '清空个人数据'}</Text>
       </Pressable>
@@ -128,8 +132,6 @@ const styles = StyleSheet.create({
   title: { color: colors.text, fontSize: 27, fontWeight: '600', marginTop: 4 },
   sectionTitle: { color: colors.text, fontSize: 18, fontWeight: '600', marginTop: 34 },
   sectionHint: { color: colors.muted, fontSize: 13, lineHeight: 20, marginTop: 7, marginBottom: 6 },
-  emptyMemory: { paddingVertical: 28 },
-  emptyText: { color: colors.muted, fontSize: 14 },
   memory: { paddingVertical: 18, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
   memoryHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   type: { color: colors.accent, fontSize: 12, fontWeight: '600' },

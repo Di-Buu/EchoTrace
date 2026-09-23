@@ -3,6 +3,12 @@ from pathlib import Path
 MIGRATION = (Path(__file__).resolve().parents[3] / "supabase" / "migrations" / "202609220001_initial.sql").read_text(
     encoding="utf-8"
 )
+WEEKLY_MIGRATION = (
+    Path(__file__).resolve().parents[3]
+    / "supabase"
+    / "migrations"
+    / "202609230001_evidence_preserving_weekly_memory.sql"
+).read_text(encoding="utf-8")
 
 
 def test_all_personal_tables_enable_rls() -> None:
@@ -67,3 +73,17 @@ def test_ai_runs_support_multi_agent_trace_correlation() -> None:
     assert "trace_id text not null" in ai_runs_sql
     assert "metadata jsonb not null" in ai_runs_sql
     assert "ai_runs_user_trace_idx" in MIGRATION
+
+
+def test_raw_indexes_and_weekly_summaries_keep_owner_guards() -> None:
+    for table in {"moment_index_chunks", "weekly_reports", "weekly_summary_cards"}:
+        assert f"alter table public.{table} enable row level security;" in WEEKLY_MIGRATION
+        assert f"on public.{table}\nfor all using (user_id = auth.uid())" in WEEKLY_MIGRATION
+    for trigger in {
+        "moment_index_chunks_enforce_owner",
+        "weekly_reports_enforce_owner",
+        "weekly_summary_cards_enforce_owner",
+    }:
+        assert f"create trigger {trigger}" in WEEKLY_MIGRATION
+    assert "where m.user_id = auth.uid()" in WEEKLY_MIGRATION
+    assert "where c.user_id = auth.uid()" in WEEKLY_MIGRATION

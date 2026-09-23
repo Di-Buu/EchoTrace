@@ -68,6 +68,27 @@ class SupabaseClient:
         data = self._json_or_raise(response)
         return data if isinstance(data, list) else [data]
 
+    async def upsert(
+        self,
+        table: str,
+        access_token: str,
+        payload: dict[str, Any] | list[dict[str, Any]],
+        *,
+        on_conflict: str,
+    ) -> list[dict[str, Any]]:
+        self._ensure_configured()
+        headers = self._headers(access_token, representation=True)
+        headers["Prefer"] = "return=representation,resolution=merge-duplicates"
+        response = await self.http.post(
+            f"{self.settings.supabase_rest_url}/{table}",
+            params={"on_conflict": on_conflict},
+            json=payload,
+            headers=headers,
+            timeout=20,
+        )
+        data = self._json_or_raise(response)
+        return data if isinstance(data, list) else [data]
+
     async def update(
         self,
         table: str,

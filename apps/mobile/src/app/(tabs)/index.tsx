@@ -1,6 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Animated,
   FlatList,
@@ -29,8 +29,10 @@ export default function HollowScreen() {
   const [messages, setMessages] = useState<LocalMessage[]>([]);
   const [sending, setSending] = useState(false);
   const [notice, setNotice] = useState('');
-  const ripple = useRef(new Animated.Value(0)).current;
+  const [ripple] = useState(() => new Animated.Value(0));
 
+  // Router params are external navigation state; synchronizing them here is intentional.
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (params.threadId) {
       setMode('chat');
@@ -52,6 +54,7 @@ export default function HollowScreen() {
       if (params.content) setDraft(params.content);
     }
   }, [params.content, params.sourceMomentId, params.threadId]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const canSubmit = Boolean(draft.trim()) && !sending;
   const emptyText = useMemo(() => (mode === 'capture' ? '想说什么都可以' : '从现在这句话开始'), [mode]);
@@ -64,17 +67,6 @@ export default function HollowScreen() {
     });
   }
 
-  function processMoment(momentId: string) {
-    void api.post<{ memories_created: number; insight_refresh_recommended: boolean }>(`/moments/${momentId}/process`)
-      .then((result) => {
-        if (result.insight_refresh_recommended) {
-          return api.post('/insights/refresh');
-        }
-        return undefined;
-      })
-      .catch(() => undefined);
-  }
-
   async function submit() {
     const content = draft.trim();
     if (!content || sending) return;
@@ -83,7 +75,7 @@ export default function HollowScreen() {
     setNotice(mode === 'capture' ? '正在保存…' : '正在听你说…');
     try {
       if (mode === 'capture') {
-        const moment = await api.post<Moment>('/moments', {
+        await api.post<Moment>('/moments', {
           content,
           mode: 'capture',
           input_type: 'text',
@@ -91,7 +83,6 @@ export default function HollowScreen() {
         });
         setDraft('');
         showSaved();
-        processMoment(moment.id);
       } else {
         optimisticId = `local-${Date.now()}`;
         const optimistic: LocalMessage = {
@@ -112,7 +103,6 @@ export default function HollowScreen() {
         setSourceMomentId(null);
         setMessages((current) => [...current, response.message]);
         setNotice('');
-        processMoment(response.moment_id);
       }
     } catch (error) {
       if (optimisticId) {

@@ -1,20 +1,34 @@
 from datetime import UTC, datetime
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 
+from app.config import get_settings
 from app.dependencies import CurrentUser, Database
 from app.domain import ThreadMessageCreate
 from app.service_dependencies import Companion
+from app.services.moment_index import run_moment_index_job
 from app.services.telemetry import Telemetry
 
 router = APIRouter(tags=["chat"])
 
 
 @router.post("/chat")
-async def chat(payload: ThreadMessageCreate, user: CurrentUser, companion: Companion) -> dict:
+async def chat(
+    payload: ThreadMessageCreate,
+    user: CurrentUser,
+    companion: Companion,
+    background_tasks: BackgroundTasks,
+) -> dict:
     try:
-        return (await companion.reply(user, payload)).model_dump(mode="json")
+        result = await companion.reply(user, payload)
+        background_tasks.add_task(
+            run_moment_index_job,
+            user,
+            result.moment_id,
+            get_settings(),
+        )
+        return result.model_dump(mode="json")
     except LookupError as exc:
         raise HTTPException(404, str(exc)) from exc
 

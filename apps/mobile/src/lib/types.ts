@@ -63,3 +63,23 @@ export type Insight = {
   created_at: string;
   insight_evidence: InsightEvidence[];
 };
+
+export type WeeklyDigestCard = {
+  topic: string;
+  summary: string;
+  source_moment_ids: string[];
+  counter_moment_ids: string[];
+  time_start: string;
+  time_end: string;
+};
+
+export type WeeklyReport = {
+  id: string;
+  week_start: string;
+  week_end: string;
+  status: 'processing' | 'completed' | 'insufficient' | 'no_records' | 'failed' | 'stale';
+  digest: WeeklyDigestCard[];
+  insight_id: string | null;
+  created_at: string;
+  updated_at: string;
+};
