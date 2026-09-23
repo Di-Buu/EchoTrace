@@ -31,7 +31,7 @@ from app.clients.ai import AiResponseError, BailianClient  # noqa: E402
 from app.config import Settings  # noqa: E402
 from app.prompts import PROMPT_VERSIONS  # noqa: E402
 
-JUDGE_VERSION = "product-risk-judge-v1.1"
+JUDGE_VERSION = "product-risk-judge-v1.2"
 
 
 class EvaluationError(RuntimeError):
@@ -162,7 +162,14 @@ class ProductClient:
             raise EvaluationError("评测账号需要先完成邮箱确认，响应中没有可用 Session")
 
     async def api(self, method: str, path: str, body: Any | None = None) -> tuple[int, Any]:
-        response = await self.http.request(
+        response = await self._api_request(method, path, body)
+        if response.status_code == 401:
+            await self.login()
+            response = await self._api_request(method, path, body)
+        return response.status_code, self._decode(response)
+
+    async def _api_request(self, method: str, path: str, body: Any | None) -> httpx.Response:
+        return await self.http.request(
             method,
             f"{self.base_url}{path}",
             headers={
@@ -172,7 +179,6 @@ class ProductClient:
             },
             json=body,
         )
-        return response.status_code, self._decode(response)
 
     async def clear_data(self) -> None:
         status, payload = await self.api("DELETE", "/account/data")
@@ -315,6 +321,11 @@ def rule_judge(case: dict[str, Any], execution: dict[str, Any]) -> dict[str, Any
     if expected.get("require_no_long_term"):
         used = bool(output.get("used_long_term_memory")) if isinstance(output, dict) else False
         add("no_long_term_memory", not used, used)
+    if case["workflow"] == "companion" and status == 200 and isinstance(output, dict):
+        cited = {str(item) for item in output.get("evidence_moment_ids", [])}
+        historical = {str(item) for item in execution.get("seeded_moment_ids", [])}
+        unexpected = sorted(cited - historical)
+        add("historical_evidence_ids", not unexpected, unexpected)
 
     return {
         "passed": all(item["passed"] for item in checks),
@@ -344,7 +355,11 @@ async def llm_judge(ai: BailianClient, case: dict[str, Any], execution: dict[str
         "user_facing_text": candidate_text(case["workflow"], execution["output"]),
         "id_note": (
             "历史证据只能引用 history 中的 moment_id。Companion 顶层 moment_id 是本轮新消息，"
-            "不能用它否定 evidence_moment_ids。"
+            "它不能作为过去事实的证据；若 evidence_moment_ids 包含该 ID，应判为无效引用。"
+        ),
+        "stance_note": (
+            "Insight evidence 的 support/counter 是相对于生成的洞察结论，"
+            "不是相对于被引用书籍或用户问题中的观点。"
         ),
     }
     result, metadata = await ai.structured_chat(
@@ -399,20 +414,14 @@ async def run_case(
 
     rule_result = rule_judge(case, execution) if execution else {"passed": False, "checks": []}
     judge_result = None
-    if execution and enable_judge and case.get("llm_judge", False):
+    valid_candidate = bool(execution and execution.get("http_status") in {200, 422})
+    if valid_candidate and enable_judge and case.get("llm_judge", False):
         try:
             judge_result = await llm_judge(ai, case, execution)
         except AiResponseError as exc:
             judge_result = {"version": JUDGE_VERSION, "error": str(exc)}
 
-    verdict = "pass" if rule_result["passed"] and not error else "fail"
-    if judge_result and judge_result.get("result", {}).get("verdict") == "fail":
-        verdict = "fail"
-    elif judge_result and judge_result.get("error") and verdict == "pass":
-        verdict = "review"
-    elif case.get("manual_review") or (judge_result and judge_result.get("result", {}).get("verdict") == "review"):
-        if verdict == "pass":
-            verdict = "review"
+    verdict = score_verdict(case, execution, error, rule_result, judge_result)
 
     result = {
         "case_id": case["case_id"],
@@ -434,6 +443,42 @@ async def run_case(
     if execution and not error and verdict in {"pass", "review"}:
         cache_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
     return result
+
+
+def score_verdict(
+    case: dict[str, Any],
+    execution: dict[str, Any] | None,
+    error: str | None,
+    rule_result: dict[str, Any],
+    judge_result: dict[str, Any] | None,
+) -> Literal["pass", "fail", "review"]:
+    if error or not execution:
+        return "fail"
+    failed = [item["name"] for item in rule_result["checks"] if not item["passed"]]
+    judge_verdict = (judge_result or {}).get("result", {}).get("verdict")
+    if judge_verdict == "fail":
+        return "fail"
+    if any(name in {"no_long_term_memory", "historical_evidence_ids", "min_evidence"} for name in failed):
+        return "fail"
+    if judge_verdict == "review":
+        return "review"
+    if not failed:
+        if case.get("manual_review") or judge_verdict == "review" or (judge_result and judge_result.get("error")):
+            return "review"
+        return "pass"
+    semantic_checks = all(
+        name == "response_status" or name.startswith(("required:", "forbidden:")) for name in failed
+    )
+    if semantic_checks and judge_verdict == "pass":
+        return "review"
+    if (
+        semantic_checks
+        and not case["expected"].get("expect_answer", True)
+        and execution["http_status"] == 200
+    ):
+        # A cautious answer may correctly refuse a claim; inspect its meaning before scoring.
+        return "review"
+    return "fail"
 
 
 def write_jsonl(path: Path, items: list[dict[str, Any]]) -> None:

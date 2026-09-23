@@ -99,11 +99,13 @@ class CompanionService:
         summary = thread_rows[0].get("summary") if thread_rows else None
 
         needs_long_term = any(cue in payload.content for cue in LONG_TERM_CUES)
-        evidence = (
-            await self.retriever.search(user, payload.content, limit=6, trace_id=trace_id)
+        retrieved = (
+            await self.retriever.search(user, payload.content, limit=7, trace_id=trace_id)
             if needs_long_term
             else []
         )
+        # The current turn is saved before retrieval, but it is not past evidence.
+        evidence = [item for item in retrieved if item.moment_id != moment_id][:6]
         evidence_ids = list(dict.fromkeys(item.moment_id for item in evidence))
         context = {
             "thread_summary": summary,

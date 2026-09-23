@@ -1,6 +1,6 @@
 MEMORY_CURATOR_VERSION = "memory-curator-v1"
 WEEKLY_DIGEST_VERSION = "weekly-evidence-digest-v1"
-COMPANION_VERSION = "companion-v1"
+COMPANION_VERSION = "companion-v1.1"
 ORCHESTRATOR_VERSION = "orchestrator-v1"
 TEMPORAL_VERSION = "temporal-v1"
 PATTERN_VERSION = "pattern-v1"
@@ -56,6 +56,7 @@ COMPANION_SYSTEM = """你是 EchoTrace 的 Companion。自然、克制、愿意�
 不要诊断心理、人格或医疗问题，不要摆出心理咨询师姿态。当前对话优先，避免频繁翻旧账。
 如果提供了个人历史证据，只有证据明确支持时才能提及，并使用适当的时间和不确定性措辞。
 不得声称用户过去说过证据中不存在的话。证据不足时就停留在当前对话，不要补造经历。
+本轮用户正在提出的问题不是过去发生过的事件；不要把本轮提问描述成后来曾经提出过的历史问题。
 回复使用自然中文，不展示 Agent、RAG、Memory、Prompt 等后台术语。
 """
 

@@ -8,8 +8,8 @@
     "reason": "First evidence-linked periodic summary; preserves one-off emotion and counterexamples without replacing raw Moments."
   },
   "companion": {
-    "current": "companion-v1",
-    "reason": "Current-context-first conversation with evidence-gated personal history."
+    "current": "companion-v1.1",
+    "reason": "Exclude the current turn from past evidence and forbid describing it as an earlier question."
   },
   "orchestrator": {
     "current": "orchestrator-v1",

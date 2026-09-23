@@ -61,6 +61,15 @@ python evaluation/run_eval.py --max-cases 3 --no-judge
 python evaluation/run_eval.py --force
 ```
 
+已有评测结果需要用新版规则重新判定时，可离线执行；此命令不会调用产品接口或模型：
+
+```powershell
+python evaluation/rescore_run.py evaluation/results/run-20260923-193003
+```
+
+它会生成独立的 `rescore-时间` 报告，保留原始输出和旧版 LLM Judge 判定。
+该报告用于区分评测规则误判，不能冒充修复产品后的新效果。
+
 ## 重试、断点与缓存
 
 - 每个 Case 独立初始化、执行和清理，单个失败不会丢失之前结果。
@@ -95,4 +104,6 @@ python evaluation/run_eval.py --force
 - `run_weekly_smoke.py`：保存后后台索引、两条记录周摘要和两个原始 Evidence 来源通过；
 - 本地 Web 3 条自动化通过：真实保存与历史、保存中反馈、网络失败恢复。
 
-以上只证明工程链路能够真实运行，不是正式产品效果指标。LLM Judge 未在本轮冒烟中运行，正式 36-Case 全量评测仍未执行。
+2026-09-23 已完成一次 36-Case 本地全量运行：20 通过、11 失败、5 待复核。原始报告位于 `results/run-20260923-193003/`。排查后的离线重算报告位于 `results/rescore-20260923-225946/`；它沿用旧产品输出与旧 Judge，不能作为修复后的效果指标。
+
+Companion 当前问题误入历史证据的缺陷已修复；3 条针对性真实回归在 `results/run-20260923-230101/` 中通过。新版 36-Case 全量效果尚未复测，待人工复核项也未最终裁决。
