@@ -28,11 +28,11 @@
     "reason": "Rejects unsupported repeated decision loops and duration claims after a reproduced conflicting-goal bad case."
   },
   "synthesizer": {
-    "current": "synthesizer-v1.5",
-    "reason": "Do not add unverified relationship hypotheses to otherwise grounded time-ordered observations."
+    "current": "synthesizer-v1.7",
+    "reason": "Count evidence separately for each property; express dates and finite observations instead of generalized tendencies or repeated experiences."
   },
   "synthesis_audit": {
-    "current": "synthesis-audit-v1.2",
-    "reason": "Audit every title/body/limitation segment with explicit Moment IDs; reject incomplete coverage or unsupported relationship claims."
+    "current": "synthesis-audit-v1.4",
+    "reason": "Reject merged counts where one recorded experience is generalized using other related Moments; repair tendency language into dated observations."
   }
 }

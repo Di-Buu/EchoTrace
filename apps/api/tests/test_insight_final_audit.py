@@ -40,9 +40,13 @@ class FakeDb:
 
 
 class FakeAi:
-    def __init__(self, audit_results: list[bool], *, omit_last_check: bool = False) -> None:
+    def __init__(
+        self, audit_results: list[bool], *, omit_last_check: bool = False,
+        first_body: str = "用户已建立稳定的阅读习惯。",
+    ) -> None:
         self.audit_results = iter(audit_results)
         self.omit_last_check = omit_last_check
+        self.first_body = first_body
         self.synthesis_inputs: list[dict] = []
 
     async def structured_chat(self, **kwargs: object) -> tuple[object, dict]:
@@ -53,7 +57,7 @@ class FakeAi:
             if len(self.synthesis_inputs) == 1:
                 return SynthesisOutput(
                     title="已建立稳定习惯",
-                    body="用户已建立稳定的阅读习惯。",
+                    body=self.first_body,
                 ), {"model": "test"}
             return SynthesisOutput(
                 title="最近六周的阅读记录",
@@ -174,3 +178,35 @@ async def test_incomplete_sentence_audit_is_not_published() -> None:
 
     assert len(ai.synthesis_inputs) == 2
     assert db.inserted == []
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "出差可能与停跑有关。",
+        "晚饭后的安排有助于维持阅读。",
+        "在状态良好时享受聚会。",
+        "你目前尚未决定读研。",
+        "你通过选择空间来定义或追求自由。",
+        "你在周末持续进行摄影活动。",
+        "你倾向于在疲劳时回避社交。",
+        "晚饭后多次与阅读及较易进入状态的体验相关联。",
+        "晚饭后是有效时间段。",
+    ],
+)
+def test_risk_guard_catches_unrecorded_personal_inference(body: str) -> None:
+    synthesis = SynthesisOutput(title="记录观察", body=body)
+    evidence = [{"moment_content": "最近六周大多能保持每周读三次。"}]
+    assert InsightEngine._unsupported_risk_phrases(synthesis, evidence)
+
+
+@pytest.mark.asyncio
+async def test_rule_guard_repairs_even_when_model_audit_approves() -> None:
+    db = FakeDb()
+    ai = FakeAi([True, True], first_body="阅读安排可能与频率有关。")
+
+    result = await analyze(make_engine(db, ai))
+
+    assert len(ai.synthesis_inputs) == 2
+    assert "可能与频率有关" in ai.synthesis_inputs[1]["audit_feedback"]["unsupported_phrases"]
+    assert "可能与" not in result["body"]

@@ -56,7 +56,27 @@ class SynthesisAuditOutput(BaseModel):
     checks: list[SynthesisAuditCheck] = Field(default_factory=list, max_length=30)
 
 
-AGENT_VERSION = "insight-team-v1.3"
+AGENT_VERSION = "insight-team-v1.5"
+
+# These expressions frequently turn a dated observation into an unsupported
+# personal cause, stable state or preference. If a source uses the same wording,
+# the normal semantic audit still decides whether the context supports it.
+UNSUPPORTED_PERSONAL_RISK_PATTERNS = (
+    r"可能与[^。！？\n]{1,40}有关",
+    r"受[^。！？\n]{1,30}影响",
+    r"有助于[^。！？\n]{0,30}",
+    r"可能源于[^。！？\n]{0,30}",
+    r"状态良好|精力充沛|身体舒适",
+    r"一直处于[^。！？\n]{0,25}|一直在[^。！？\n]{0,25}|一直保持[^。！？\n]{0,25}",
+    r"你目前[^。！？\n]{0,25}|目前仍在[^。！？\n]{0,25}|目前尚未[^。！？\n]{0,25}",
+    r"持续进行[^。！？\n]{0,25}",
+    r"定义或追求[^。！？\n]{0,25}",
+    r"业余爱好",
+    r"倾向于[^。！？\n]{0,30}",
+    r"多次与[^。！？\n]{0,40}相关联",
+    r"有效时间段",
+    r"持续比较",
+)
 
 
 class InsightEngine:
@@ -579,6 +599,7 @@ class InsightEngine:
         checks = {item.segment_id: item for item in output.checks}
         allowed_ids = {item["moment_id"] for item in evidence_payload}
         complete = len(output.checks) == len(segments) and set(checks) == expected_ids
+        risk_phrases = self._unsupported_risk_phrases(synthesis, evidence_payload)
         failed_segments = [
             item["text"]
             for item in segments
@@ -589,15 +610,18 @@ class InsightEngine:
                 str(source_id) for source_id in checks[item["segment_id"]].source_moment_ids
             }.issubset(allowed_ids)
         ]
-        supported = output.supported and complete and not failed_segments
+        supported = output.supported and complete and not failed_segments and not risk_phrases
         if not supported:
             output = output.model_copy(
                 update={
                     "supported": False,
                     "unsupported_phrases": list(
-                        dict.fromkeys(output.unsupported_phrases + failed_segments)
+                        dict.fromkeys(output.unsupported_phrases + failed_segments + risk_phrases)
                     )[:12],
-                    "reason": output.reason if complete else f"审计未覆盖全部 {len(segments)} 个片段；{output.reason}",
+                    "reason": (
+                        (f"存在无原文支持的高风险个人推断：{'；'.join(risk_phrases)}；" if risk_phrases else "")
+                        + (output.reason if complete else f"审计未覆盖全部 {len(segments)} 个片段；{output.reason}")
+                    )[:1000],
                 }
             )
         await self._trace(
@@ -614,6 +638,21 @@ class InsightEngine:
             },
         )
         return output
+
+    @staticmethod
+    def _unsupported_risk_phrases(
+        synthesis: SynthesisOutput, evidence_payload: list[dict]
+    ) -> list[str]:
+        source_text = "\n".join(str(item["moment_content"]) for item in evidence_payload)
+        visible_claims = f"{synthesis.title}\n{synthesis.body}"
+        return list(
+            dict.fromkeys(
+                match.group(0)
+                for pattern in UNSUPPORTED_PERSONAL_RISK_PATTERNS
+                for match in re.finditer(pattern, visible_claims)
+                if match.group(0) not in source_text
+            )
+        )
 
     def _quality_reasoning_options(self) -> dict:
         return {
