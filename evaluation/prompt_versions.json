@@ -28,7 +28,11 @@
     "reason": "Rejects unsupported repeated decision loops and duration claims after a reproduced conflicting-goal bad case."
   },
   "synthesizer": {
-    "current": "synthesizer-v1.2",
-    "reason": "Does not turn an unresolved choice into repeated oscillation or treat evidence coverage as state duration."
+    "current": "synthesizer-v1.5",
+    "reason": "Do not add unverified relationship hypotheses to otherwise grounded time-ordered observations."
+  },
+  "synthesis_audit": {
+    "current": "synthesis-audit-v1.2",
+    "reason": "Audit every title/body/limitation segment with explicit Moment IDs; reject incomplete coverage or unsupported relationship claims."
   }
 }

@@ -27,6 +27,7 @@ def baseline(commit: str, verifier: str = "verifier-v1.1") -> dict:
             "pattern": "pattern-v1",
             "verifier": verifier,
             "synthesizer": "synthesizer-v1.1",
+            "synthesis_audit": "synthesis-audit-v1",
         },
     }
 
@@ -92,6 +93,52 @@ def test_stale_new_run_cache_is_not_reused(tmp_path: Path) -> None:
         json.dumps({"execution": {"http_status": 200}, "error": None, "cache_origin": "new_run"}),
         encoding="utf-8",
     )
+    assert cache_status(case, current, tmp_path)["status"] == "run"
+
+
+def test_exact_workflow_cache_survives_unrelated_api_change(tmp_path: Path) -> None:
+    case = next(item for item in load_cases() if item["case_id"] == "companion_avoids_old_history")
+    current = baseline("same")
+    current["api_runtime_fingerprint"] = "new-api"
+    fingerprint = behavior_signature(case, current)
+    path = tmp_path / f"{case['case_id']}-{fingerprint[:12]}.json"
+    path.write_text(
+        json.dumps(
+            {
+                "fingerprint": fingerprint,
+                "api_runtime_fingerprint": "old-api",
+                "execution": {"http_status": 200},
+                "error": None,
+                "cache_origin": "new_run",
+            }
+        ),
+        encoding="utf-8",
+    )
+    status = cache_status(case, current, tmp_path)
+    assert status["status"] == "reuse"
+    assert "全局指纹变化" in status["reason"]
+
+
+def test_audit_signature_migration_requires_identical_api_runtime(tmp_path: Path) -> None:
+    case = next(item for item in load_cases() if item["case_id"] == "temporal_reading_habit")
+    current = baseline("same")
+    current["api_runtime_fingerprint"] = "same-api"
+    old_fingerprint = behavior_signature(case, current, include_synthesis_audit=False)
+    path = tmp_path / f"{case['case_id']}-{old_fingerprint[:12]}.json"
+    path.write_text(
+        json.dumps(
+            {
+                "fingerprint": old_fingerprint,
+                "api_runtime_fingerprint": "same-api",
+                "cache_origin": "new_run",
+                "execution": {"http_status": 200},
+                "error": None,
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert cache_status(case, current, tmp_path)["status"] == "reuse"
+    current["api_runtime_fingerprint"] = "changed-api"
     assert cache_status(case, current, tmp_path)["status"] == "run"
 
 

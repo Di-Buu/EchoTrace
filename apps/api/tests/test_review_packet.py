@@ -70,6 +70,8 @@ def test_standard_report_also_writes_review_packet(tmp_path: Path) -> None:
         "generated_at": "2026-09-24T00:00:00Z",
         "baseline": {
             "git": {"commit": "test", "dirty": False},
+            "api_runtime_fingerprint": "test-api",
+            "evaluation_fingerprint": "test-evaluation",
             "chat_model": "test",
             "embedding_model": "test",
             "prompt_versions": {},

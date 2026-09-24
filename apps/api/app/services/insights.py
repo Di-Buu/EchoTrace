@@ -1,8 +1,11 @@
 import asyncio
 import hashlib
 import json
+import re
 from typing import Literal
-from uuid import uuid4
+from uuid import UUID, uuid4
+
+from pydantic import BaseModel, Field
 
 from app.clients.ai import BailianClient
 from app.clients.supabase import SupabaseClient
@@ -22,6 +25,8 @@ from app.prompts import (
     ORCHESTRATOR_VERSION,
     PATTERN_SYSTEM,
     PATTERN_VERSION,
+    SYNTHESIS_AUDIT_SYSTEM,
+    SYNTHESIS_AUDIT_VERSION,
     SYNTHESIZER_SYSTEM,
     SYNTHESIZER_VERSION,
     TEMPORAL_SYSTEM,
@@ -37,7 +42,21 @@ class InsufficientEvidenceError(RuntimeError):
     pass
 
 
-AGENT_VERSION = "insight-team-v1"
+class SynthesisAuditCheck(BaseModel):
+    segment_id: int = Field(ge=0)
+    supported: bool
+    source_moment_ids: list[UUID] = Field(default_factory=list)
+    reason: str = Field(min_length=1, max_length=500)
+
+
+class SynthesisAuditOutput(BaseModel):
+    supported: bool
+    unsupported_phrases: list[str] = Field(default_factory=list, max_length=12)
+    reason: str = Field(min_length=1, max_length=1_000)
+    checks: list[SynthesisAuditCheck] = Field(default_factory=list, max_length=30)
+
+
+AGENT_VERSION = "insight-team-v1.3"
 
 
 class InsightEngine:
@@ -247,6 +266,7 @@ class InsightEngine:
             user=json.dumps(
                 {
                     "question": question,
+                    "evidence": evidence_payload,
                     "verified_claims": [item.model_dump(mode="json") for item in accepted],
                     "output_schema": {
                         "title": "string",
@@ -267,8 +287,51 @@ class InsightEngine:
             synth_meta,
             evidence_count=len(allowed_ids),
             trace_id=trace_id,
-            details={"accepted_claims": len(accepted), "verification_status": final_status},
+            details={"accepted_claims": len(accepted), "verification_status": final_status, "attempt": 1},
         )
+        audit = await self._audit_synthesis(
+            user, question, evidence_payload, accepted, synthesis, trace_id, attempt=1
+        )
+        if not audit.supported:
+            synthesis, repair_meta = await self.ai.structured_chat(
+                system=SYNTHESIZER_SYSTEM,
+                user=json.dumps(
+                    {
+                        "question": question,
+                        "evidence": evidence_payload,
+                        "verified_claims": [item.model_dump(mode="json") for item in accepted],
+                        "previous_synthesis": synthesis.model_dump(mode="json"),
+                        "audit_feedback": {
+                            "unsupported_phrases": audit.unsupported_phrases,
+                            "reason": audit.reason,
+                        },
+                        "instruction": "只修正无据措辞，不添加新事实；保留有价值且有证据的观察。",
+                        "output_schema": {
+                            "title": "string",
+                            "body": "string",
+                            "limitation": "string or null",
+                        },
+                    },
+                    ensure_ascii=False,
+                ),
+                schema=SynthesisOutput,
+                temperature=0.1,
+                **self._quality_reasoning_options(),
+            )
+            await self._trace(
+                user,
+                "insight_synthesizer",
+                SYNTHESIZER_VERSION,
+                repair_meta,
+                evidence_count=len(allowed_ids),
+                trace_id=trace_id,
+                details={"accepted_claims": len(accepted), "verification_status": final_status, "attempt": 2},
+            )
+            audit = await self._audit_synthesis(
+                user, question, evidence_payload, accepted, synthesis, trace_id, attempt=2
+            )
+            if not audit.supported:
+                raise InsufficientEvidenceError("洞察成稿未通过原始记录核验")
 
         starts = [claim.time_start for claim in accepted if claim.time_start]
         ends = [claim.time_end for claim in accepted if claim.time_end]
@@ -463,6 +526,91 @@ class InsightEngine:
                 "pass_count": sum(item.verification_status == "PASS" for item in output.claims),
                 "weak_count": sum(item.verification_status == "WEAK" for item in output.claims),
                 "reject_count": sum(item.verification_status == "REJECT" for item in output.claims),
+            },
+        )
+        return output
+
+    async def _audit_synthesis(
+        self,
+        user: UserContext,
+        question: str,
+        evidence_payload: list[dict],
+        accepted: list[VerifiedClaim],
+        synthesis: SynthesisOutput,
+        trace_id: str,
+        *,
+        attempt: int,
+    ) -> SynthesisAuditOutput:
+        segments = [{"segment_id": 0, "text": synthesis.title}]
+        for field in (synthesis.body, synthesis.limitation or ""):
+            for part in re.split(r"[。！？；\n]+", field):
+                if part.strip():
+                    segments.append({"segment_id": len(segments), "text": part.strip()})
+        output, metadata = await self.ai.structured_chat(
+            system=SYNTHESIS_AUDIT_SYSTEM,
+            user=json.dumps(
+                {
+                    "question": question,
+                    "evidence": evidence_payload,
+                    "verified_claims": [item.model_dump(mode="json") for item in accepted],
+                    "final_synthesis": synthesis.model_dump(mode="json"),
+                    "segments_to_check": segments,
+                    "output_schema": {
+                        "supported": "boolean",
+                        "unsupported_phrases": ["string"],
+                        "reason": "string",
+                        "checks": [
+                            {
+                                "segment_id": "integer",
+                                "supported": "boolean",
+                                "source_moment_ids": ["UUID"],
+                                "reason": "string",
+                            }
+                        ],
+                    },
+                },
+                ensure_ascii=False,
+            ),
+            schema=SynthesisAuditOutput,
+            temperature=0,
+            **self._quality_reasoning_options(),
+        )
+        expected_ids = {item["segment_id"] for item in segments}
+        checks = {item.segment_id: item for item in output.checks}
+        allowed_ids = {item["moment_id"] for item in evidence_payload}
+        complete = len(output.checks) == len(segments) and set(checks) == expected_ids
+        failed_segments = [
+            item["text"]
+            for item in segments
+            if item["segment_id"] not in checks
+            or not checks[item["segment_id"]].supported
+            or not checks[item["segment_id"]].source_moment_ids
+            or not {
+                str(source_id) for source_id in checks[item["segment_id"]].source_moment_ids
+            }.issubset(allowed_ids)
+        ]
+        supported = output.supported and complete and not failed_segments
+        if not supported:
+            output = output.model_copy(
+                update={
+                    "supported": False,
+                    "unsupported_phrases": list(
+                        dict.fromkeys(output.unsupported_phrases + failed_segments)
+                    )[:12],
+                    "reason": output.reason if complete else f"审计未覆盖全部 {len(segments)} 个片段；{output.reason}",
+                }
+            )
+        await self._trace(
+            user,
+            "insight_final_evidence_audit",
+            SYNTHESIS_AUDIT_VERSION,
+            metadata,
+            evidence_count=len(evidence_payload),
+            trace_id=trace_id,
+            details={
+                "supported": output.supported,
+                "unsupported_count": len(output.unsupported_phrases),
+                "attempt": attempt,
             },
         )
         return output

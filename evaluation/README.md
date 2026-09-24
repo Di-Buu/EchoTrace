@@ -6,6 +6,8 @@
 
 **首次固定核心集已由用户在本地执行**：`results/run-20260924-114228/`，基线 `b30233c`，24 个 AI Case 为 15 pass、1 fail、8 review；21 个有正例的 Case 在真实 Top-K 中命中 40/40 个标注 Moment；5 组真实 A/B 均通过。唯一 fail 的爵士乐案例初步判为 Judge 忽略用户“过去三个月”的自述，原始报告不改写。用户随后确认严格口径，Codex 仅依据保存输出审读 11 条生成洞察并离线汇总：有据 7/11，过度推断 4/11；详情见该目录 `final_report.md`。这是辅助审读而非独立盲审，不能把结构引用 11/11 或 Judge 的 0 次标记当最终效果。**不要为了 review 状态重跑完整测试。**
 
+**版本提示：**上述百分比属于旧版 `b30233c`。当前本地质量版已针对无据洞察增加最终成稿逐句证据复核与一次改写，只有定向工程回归，没有新版完整指标。参见 `EVIDENCE_LEDGER.md` 顶部的本轮迭代记录。下一次正式运行后，所有实际生成 Insight 都需按同一严格口径逐条审读；应生成却未生成的案例也须单独统计，不能靠拒答改善比例。
+
 先在 `evaluation/eval.env` 中填写两个**不同的、已确认邮箱的专用测试账号**：`ECHOTRACE_EVAL_EMAIL`、`ECHOTRACE_EVAL_PASSWORD`、`ECHOTRACE_EVAL_B_EMAIL`、`ECHOTRACE_EVAL_B_PASSWORD`。绝不能使用日常账号：评测会清理这两个账号的 EchoTrace 产品数据，但不会删除 Supabase Auth 账号。两个账号先完成登录及身份不同校验，之后才会清理测试数据。`--plan` 完全不会登录、清理或调用模型。
 
 本地 API 必须以 `local_quality` 配置启动，且修改 Prompt/代码后重启 API。正式运行只需在项目根目录执行：

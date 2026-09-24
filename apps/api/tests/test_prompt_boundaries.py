@@ -3,6 +3,7 @@ from pathlib import Path
 
 from app.prompts import (
     PROMPT_VERSIONS,
+    SYNTHESIS_AUDIT_SYSTEM,
     SYNTHESIZER_SYSTEM,
     VERIFIER_SYSTEM,
 )
@@ -23,3 +24,10 @@ def test_unresolved_choice_does_not_imply_repeated_loop() -> None:
     assert "REJECT" in VERIFIER_SYSTEM
     assert "没有已验证的多次往返" in SYNTHESIZER_SYSTEM
     assert "首末日期不等于该状态持续的时长" in SYNTHESIZER_SYSTEM
+
+
+def test_final_insight_wording_keeps_qualifiers_on_every_mention() -> None:
+    assert "每一次都要保留时间范围" in SYNTHESIZER_SYSTEM
+    assert "总结句" in SYNTHESIS_AUDIT_SYSTEM
+    assert "局限性不能弥补正文" in SYNTHESIS_AUDIT_SYSTEM
+    assert "每个片段" in SYNTHESIS_AUDIT_SYSTEM

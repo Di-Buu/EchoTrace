@@ -29,8 +29,8 @@ WORKFLOW_SOURCES = {
 }
 WORKFLOW_PROMPTS = {
     "companion": ("companion",),
-    "insight": ("orchestrator", "temporal", "pattern", "verifier", "synthesizer"),
-    "memory_retrieval": ("orchestrator", "temporal", "pattern", "verifier", "synthesizer"),
+    "insight": ("orchestrator", "temporal", "pattern", "verifier", "synthesizer", "synthesis_audit"),
+    "memory_retrieval": ("orchestrator", "temporal", "pattern", "verifier", "synthesizer", "synthesis_audit"),
 }
 PROMPT_ATTRIBUTES = {
     "companion": "COMPANION_SYSTEM",
@@ -39,6 +39,7 @@ PROMPT_ATTRIBUTES = {
     "pattern": "PATTERN_SYSTEM",
     "verifier": "VERIFIER_SYSTEM",
     "synthesizer": "SYNTHESIZER_SYSTEM",
+    "synthesis_audit": "SYNTHESIS_AUDIT_SYSTEM",
 }
 CONFIG_KEYS = (
     "chat_model",
@@ -55,7 +56,9 @@ def relevant_sources(workflow: str) -> tuple[str, ...]:
     return (*COMMON_SOURCES, *WORKFLOW_SOURCES[workflow])
 
 
-def behavior_signature(case: dict[str, Any], baseline: dict[str, Any]) -> str:
+def behavior_signature(
+    case: dict[str, Any], baseline: dict[str, Any], *, include_synthesis_audit: bool = True
+) -> str:
     sources = {
         path: hashlib.sha256(_behavior_bytes(path, (PROJECT_ROOT / path).read_bytes())).hexdigest()
         for path in relevant_sources(case["workflow"])
@@ -70,6 +73,8 @@ def behavior_signature(case: dict[str, Any], baseline: dict[str, Any]) -> str:
         if isinstance(target, ast.Name)
     }
     selected_prompts = WORKFLOW_PROMPTS[case["workflow"]]
+    if not include_synthesis_audit:
+        selected_prompts = tuple(name for name in selected_prompts if name != "synthesis_audit")
     payload = {
         "case": case,
         "sources": sources,
@@ -185,14 +190,52 @@ def cache_status(
     if cache_path.exists():
         try:
             item = json.loads(cache_path.read_text(encoding="utf-8"))
-            if item.get("execution") and not item.get("error") and _trusted_cache(item, baseline):
+            # An exact workflow signature already covers its code, prompts, model
+            # configuration and case data. A different whole-API fingerprint can
+            # result from an unrelated workflow change and must not waste calls.
+            trusted_source = not item.get("source_run") or _trusted_cache(item, baseline)
+            if (
+                item.get("execution")
+                and not item.get("error")
+                and item.get("fingerprint") == fingerprint
+                and trusted_source
+            ):
+                reason = "工作流行为指纹一致"
+                if item.get("api_runtime_fingerprint") != baseline.get("api_runtime_fingerprint"):
+                    reason += "；API 全局指纹变化但本工作流相关行为未变"
                 return {
-                    "status": "reuse", "reason": "工作流行为指纹一致",
+                    "status": "reuse", "reason": reason,
                     "fingerprint": fingerprint, "path": cache_path, "item": item,
                     "missing_retrieval_trace": item["execution"].get("retrieval_trace") is None,
                 }
         except (OSError, ValueError):
             pass
+    if case["workflow"] in {"insight", "memory_retrieval"}:
+        # Earlier runs of this exact API included final-text auditing before
+        # its prompt was added to the evaluator's signature. Reindex only when
+        # the entire loaded API runtime is identical; never bridge code changes.
+        old_fingerprint = behavior_signature(case, baseline, include_synthesis_audit=False)
+        old_path = cache_dir / f"{case['case_id']}-{old_fingerprint[:12]}.json"
+        if old_path.exists():
+            try:
+                item = json.loads(old_path.read_text(encoding="utf-8"))
+                if (
+                    item.get("fingerprint") == old_fingerprint
+                    and item.get("api_runtime_fingerprint") == baseline.get("api_runtime_fingerprint")
+                    and item.get("cache_origin") == "new_run"
+                    and item.get("execution")
+                    and not item.get("error")
+                ):
+                    return {
+                        "status": "reuse",
+                        "reason": "API 运行指纹完全一致；仅评测签名补入成稿审计 Prompt",
+                        "fingerprint": fingerprint,
+                        "path": cache_path,
+                        "item": item,
+                        "missing_retrieval_trace": item["execution"].get("retrieval_trace") is None,
+                    }
+            except (OSError, ValueError):
+                pass
     legacy = find_legacy_result(case, baseline)
     if legacy:
         item, source = legacy
