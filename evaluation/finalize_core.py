@@ -30,6 +30,16 @@ def finalize(run_dir: Path) -> dict:
         raise ValueError(f"人工复核表应有 {expected_count} 条，实际 {len(rows)} 条；不得删除难判 Case")
     if len({row["case_id"] for row in rows}) != len(rows):
         raise ValueError("core_review.csv 中存在重复 case_id")
+    raw_path = run_dir / "raw_results.jsonl"
+    insight_cases = []
+    if raw_path.exists():
+        insight_cases = [
+            json.loads(line) for line in raw_path.read_text(encoding="utf-8").splitlines()
+            if line.strip() and json.loads(line).get("workflow") == "insight"
+        ]
+    generated = sum((item.get("execution") or {}).get("http_status") == 200 for item in insight_cases)
+    if insight_cases and generated != len(rows):
+        raise ValueError("人工审读条数与实际生成的 Insight 数不一致")
     grounded = sum(decision(row["grounded"], "grounded", row["case_id"]) for row in rows)
     over = sum(decision(row["over_inference"], "over_inference", row["case_id"]) for row in rows)
     temporal = [
@@ -51,16 +61,30 @@ def finalize(run_dir: Path) -> dict:
         "temporal_reviewed": len(temporal),
         "note": "时间判断是洞察内部检查，不作为第五个作品集主指标。",
     }
+    if insight_cases:
+        metrics["insight_response_coverage"] = {
+            "cases": len(insight_cases),
+            "generated": generated,
+            "not_generated": len(insight_cases) - generated,
+            "note": "包含设计上允许证据不足的 Case；逐例查看预期与失败原因，不得从有据率分母中静默消失。",
+        }
     (run_dir / "final_metrics.json").write_text(
         json.dumps(metrics, ensure_ascii=False, indent=2), encoding="utf-8"
     )
-    labels = (
-        ("历史记忆召回率", "historical_memory_recall_rate"),
+    complete_core = metrics.get("selection", {}).get("complete_core", True)
+    labels = [
         ("洞察有据率", "insight_evidence_rate"),
         ("过度推断率", "over_inference_rate"),
-        ("跨用户串数据率", "cross_user_leakage_rate"),
-    )
+    ]
+    if complete_core:
+        labels.insert(0, ("历史记忆召回率", "historical_memory_recall_rate"))
+        labels.append(("跨用户串数据率", "cross_user_leakage_rate"))
     lines = ["# EchoTrace 核心产品风险最终结果", "", f"评测版本：{metrics['baseline']['git']['commit']}", ""]
+    if not complete_core:
+        lines.extend([
+            "本次只评所选工作流；历史召回与跨用户隔离未在本次重新测量，不得将部分样本当完整核心集。",
+            "",
+        ])
     for label, key in labels:
         item = product[key]
         value = "证据不足，暂不报告" if item["value"] is None else f"{item['value']:.1%}"
@@ -70,6 +94,10 @@ def finalize(run_dir: Path) -> dict:
         f"- 时间判断内部检查：{sum(temporal)}/{len(temporal)}（若未填则不统计）",
         "", "旧版本结果、缺检索 Top-K 的 Case 和未完成的 A/B 对照均未冒充本次成绩。",
     ])
+    if insight_cases:
+        lines.extend([
+            f"- 本次 Insight Case：{len(insight_cases)}；生成 {generated}；未生成 {len(insight_cases) - generated}（须结合每例预期解释）",
+        ])
     (run_dir / "final_report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     return metrics
 

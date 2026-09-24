@@ -809,6 +809,7 @@ async def async_main() -> int:
     )
     parser.add_argument("--case-id", action="append")
     parser.add_argument("--suite", choices=("core", "legacy-all"), default="core")
+    parser.add_argument("--workflow", choices=("insight", "memory_retrieval", "companion"))
     parser.add_argument("--category", action="append")
     parser.add_argument("--max-cases", type=int)
     parser.add_argument("--no-judge", action="store_true")
@@ -852,13 +853,17 @@ async def async_main() -> int:
     if args.category:
         selected_categories = set(args.category)
         cases = [case for case in cases if selected_categories.intersection(case["category"])]
+    if args.workflow:
+        cases = [case for case in cases if case["workflow"] == args.workflow]
     if args.max_cases is not None:
         cases = cases[: max(0, args.max_cases)]
     if not cases:
         raise EvaluationError("筛选后没有可运行的 Case")
 
     cache_dir = ROOT / "results" / "cache"
-    run_isolation = args.suite == "core" and not (args.case_id or args.category or args.max_cases is not None)
+    run_isolation = args.suite == "core" and not (
+        args.case_id or args.category or args.workflow or args.max_cases is not None
+    )
     gold = load_gold()
 
     def refresh_missing_top_k(case: dict[str, Any], status: dict[str, Any]) -> bool:
@@ -947,6 +952,12 @@ async def async_main() -> int:
             await second_client.close()
 
     metrics = build_metrics(results, baseline, cases)
+    metrics["selection"] = {
+        "suite": args.suite,
+        "workflow": args.workflow,
+        "complete_core": run_isolation,
+        "case_ids": [case["case_id"] for case in cases],
+    }
     if args.suite == "core":
         metrics["core_product_metrics"] = core_product_metrics(
             results, metrics["evidence_metrics"], isolation_results

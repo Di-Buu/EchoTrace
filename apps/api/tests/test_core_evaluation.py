@@ -105,6 +105,30 @@ def test_human_finalization_calculates_only_completed_reviews(tmp_path) -> None:
     assert metrics["human_adjudication"]["temporal_correct"] == 1
 
 
+def test_partial_insight_report_does_not_claim_full_recall_or_isolation(tmp_path) -> None:
+    (tmp_path / "metrics.json").write_text(
+        '{"baseline":{"git":{"commit":"test"}},"selection":{"complete_core":false},'
+        '"core_product_metrics":{"insight_evidence_rate":{"generated_insights":1},'
+        '"over_inference_rate":{},"historical_memory_recall_rate":{"value":1.0},'
+        '"cross_user_leakage_rate":{"value":0.0}}}', encoding="utf-8"
+    )
+    (tmp_path / "core_review.csv").write_text(
+        "case_id,grounded,over_inference,temporal_correct,review_notes\n"
+        "one,yes,no,yes,\n", encoding="utf-8"
+    )
+    (tmp_path / "raw_results.jsonl").write_text(
+        '{"case_id":"one","workflow":"insight","execution":{"http_status":200}}\n'
+        '{"case_id":"two","workflow":"insight","execution":{"http_status":422}}\n',
+        encoding="utf-8",
+    )
+    metrics = finalize(tmp_path)
+    report = (tmp_path / "final_report.md").read_text(encoding="utf-8")
+    assert metrics["insight_response_coverage"]["not_generated"] == 1
+    assert "洞察有据率" in report
+    assert "历史记忆召回率" not in report
+    assert "跨用户串数据率" not in report
+
+
 @pytest.mark.asyncio
 async def test_two_isolation_workflows_dry_run_without_external_calls(monkeypatch) -> None:
     class Response:

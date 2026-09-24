@@ -15,9 +15,9 @@
 | `run-20260924-135606` | 逐句核验后只补阅读：1 review，200 | 标题、正文、局限性均以原文时间边界表述；末句不再补造关系假说；人工判断为可接受回归，不是独立样本 |
 | `run-20260924-140006` | 两条未参与调 Prompt 的相邻案例：1 pass、1 review，2/2 返回 200 | 阅读模式有原文支持；单条社交记录谨慎拒绝长期人格结论。只作小范围副作用检查，不能算新版总体成绩 |
 
-定向 Insight 单例实际约 60–191 秒，逐句复核可能增加时延；当前产品的后台/每周生成策略可避免用户在前台等待，但线上异步 Worker 仍是后续部署议题。最后一次从共享 `domain.py` 将仅供 Insight 使用的审计 Schema 局部化后，完整 API 指纹变化；本地 68 项单元测试和 `/health` 通过，但**当前最终代码尚无完整 24 Case 正式效果结果**。增量计划会复用未改变的 Companion 案例；Memory Retrieval 和 Insight 因共用 Insight 流程而需要当前版结果。旧 `run-20260924-114228/final_report.md` 只代表旧基线。
+定向 Insight 单例实际约 60–191 秒，逐句复核可能增加时延；当前产品的后台/每周生成策略可避免用户在前台等待，但线上异步 Worker 仍是后续部署议题。最后一次从共享 `domain.py` 将仅供 Insight 使用的审计 Schema 局部化后，完整 API 指纹变化；本地 69 项单元测试和 `/health` 通过，但**当前最终代码尚无完整 24 Case 正式效果结果**。增量计划会复用未改变的 Companion 案例；Memory Retrieval 和 Insight 因共用 Insight 流程而需要当前版结果。旧 `run-20260924-114228/final_report.md` 只代表旧基线。
 
-后续正式复评仍由项目负责人本地执行 `apps/api/.venv/Scripts/python.exe evaluation/run_eval.py`。运行后必须按同一严格口径审读每条生成 Insight，分别记录应生成数、实际生成数、拒答数、有据数、过度推断数；不要只在成功生成者中筛选分母，更不能把参加 Prompt 调整的四条回归当独立留出集。自动 `pass/review` 不是最终有据/过推断评分。
+后续本轮定向正式复评由项目负责人本地执行 `apps/api/.venv/Scripts/python.exe evaluation/run_eval.py --workflow insight`，不重复跑 Memory、Companion 和 A/B；如需完整新版本四指标再执行无筛选入口。运行后必须按同一严格口径审读每条生成 Insight，分别记录本次 Insight Case 总数、实际生成数、未生成数、有据数、过度推断数；不能只在成功生成者中筛选分母，更不能把参加 Prompt 调整的四条回归当独立留出集。自动 `pass/review` 不是最终有据/过推断评分。
 
 ## 本轮收口状态（后续记录优先于下方历史口径）
 

@@ -8,6 +8,8 @@
 
 **版本提示：**上述百分比属于旧版 `b30233c`。当前本地质量版已针对无据洞察增加最终成稿逐句证据复核与一次改写，只有定向工程回归，没有新版完整指标。参见 `EVIDENCE_LEDGER.md` 顶部的本轮迭代记录。下一次正式运行后，所有实际生成 Insight 都需按同一严格口径逐条审读；应生成却未生成的案例也须单独统计，不能靠拒答改善比例。
 
+**本轮只更新两个低分指标时**，不用重跑 Memory 与 Companion。保持本地 API 开启，在项目根目录执行 `.\apps\api\.venv\Scripts\python.exe evaluation\run_eval.py --workflow insight`。这只运行默认核心集中的 Insight Case，使用第一个专用测试账号，不运行 A/B 隔离；历史召回与隔离沿用其各自已标版本的旧证据，不能称为本次重测。输出的 `core_review.csv` 仍需逐条审读，再运行 `finalize_core.py <本次结果目录>`；局部报告只列洞察有据率、过度推断率及生成/未生成数。
+
 先在 `evaluation/eval.env` 中填写两个**不同的、已确认邮箱的专用测试账号**：`ECHOTRACE_EVAL_EMAIL`、`ECHOTRACE_EVAL_PASSWORD`、`ECHOTRACE_EVAL_B_EMAIL`、`ECHOTRACE_EVAL_B_PASSWORD`。绝不能使用日常账号：评测会清理这两个账号的 EchoTrace 产品数据，但不会删除 Supabase Auth 账号。两个账号先完成登录及身份不同校验，之后才会清理测试数据。`--plan` 完全不会登录、清理或调用模型。
 
 本地 API 必须以 `local_quality` 配置启动，且修改 Prompt/代码后重启 API。正式运行只需在项目根目录执行：
@@ -101,6 +103,9 @@ python evaluation/run_eval.py --case-id temporal_reading_habit
 
 # 指定类别
 python evaluation/run_eval.py --category over_inference
+
+# 本轮只复评 Insight，复用未改变的其他工作流结果
+python evaluation/run_eval.py --workflow insight
 
 # 工程 dry run，不调用 LLM Judge
 python evaluation/run_eval.py --max-cases 3 --no-judge
