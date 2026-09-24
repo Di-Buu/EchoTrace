@@ -4,7 +4,7 @@
 
 本轮只回答树洞是否“记得住、说得准、不过度概括、不会串用户”。默认入口从既有 36 场景中固定选取 24 个产品 Case，另执行 5 组真实 A/B 账号隔离检查，合计 29 组；原 36 Case 与历史报告完整保留，`--suite legacy-all` 才会运行旧全集。本轮不做模型/Embedding 横评，不默认调用 Ragas，也不把 Vercel 版作为 AI 质量基线。
 
-**首次固定核心集已由用户在本地执行**：`results/run-20260924-114228/`，基线 `b30233c`，24 个 AI Case 为 15 pass、1 fail、8 review；21 个有正例的 Case 在真实 Top-K 中命中 40/40 个标注 Moment；5 组真实 A/B 均通过。唯一 fail 的爵士乐案例初步判为 Judge 忽略用户“过去三个月”的自述，详见 `EVIDENCE_LEDGER.md`；这不自动改变原报告。11 条生成洞察仍需按 `core_review_packet.md` 人工判断，不能把结构引用 11/11 或 Judge 的 0 次过度推断标记当最终效果。**不要为了这个 review 状态重跑完整测试。**
+**首次固定核心集已由用户在本地执行**：`results/run-20260924-114228/`，基线 `b30233c`，24 个 AI Case 为 15 pass、1 fail、8 review；21 个有正例的 Case 在真实 Top-K 中命中 40/40 个标注 Moment；5 组真实 A/B 均通过。唯一 fail 的爵士乐案例初步判为 Judge 忽略用户“过去三个月”的自述，原始报告不改写。用户随后确认严格口径，Codex 仅依据保存输出审读 11 条生成洞察并离线汇总：有据 7/11，过度推断 4/11；详情见该目录 `final_report.md`。这是辅助审读而非独立盲审，不能把结构引用 11/11 或 Judge 的 0 次标记当最终效果。**不要为了 review 状态重跑完整测试。**
 
 先在 `evaluation/eval.env` 中填写两个**不同的、已确认邮箱的专用测试账号**：`ECHOTRACE_EVAL_EMAIL`、`ECHOTRACE_EVAL_PASSWORD`、`ECHOTRACE_EVAL_B_EMAIL`、`ECHOTRACE_EVAL_B_PASSWORD`。绝不能使用日常账号：评测会清理这两个账号的 EchoTrace 产品数据，但不会删除 Supabase Auth 账号。两个账号先完成登录及身份不同校验，之后才会清理测试数据。`--plan` 完全不会登录、清理或调用模型。
 
