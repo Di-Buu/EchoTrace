@@ -24,11 +24,11 @@
     "reason": "Finds repetition and return signals while separating correlation from causation."
   },
   "verifier": {
-    "current": "verifier-v1.1",
-    "reason": "Checks unsupported motives, causal strength and event frequency in addition to grounding."
+    "current": "verifier-v1.2",
+    "reason": "Rejects unsupported repeated decision loops and duration claims after a reproduced conflicting-goal bad case."
   },
   "synthesizer": {
-    "current": "synthesizer-v1.1",
-    "reason": "Avoids adding motives, causality or frequency labels beyond verified evidence."
+    "current": "synthesizer-v1.2",
+    "reason": "Does not turn an unresolved choice into repeated oscillation or treat evidence coverage as state duration."
   }
 }

@@ -1,0 +1,7 @@
+{
+  "unverified_runs": {
+    "run-20260924-000633": "API process started before verifier/synthesizer v1.1 Prompt file changed; saved baseline reflects disk, not loaded server.",
+    "run-20260923-205030": "Cache-only dry run includes a result inherited from run-20260924-000633.",
+    "run-20260924-013931": "API process started before verifier/synthesizer v1.1 Prompt and retrieval telemetry changes; 25 new results cannot be attributed to v1.1."
+  }
+}

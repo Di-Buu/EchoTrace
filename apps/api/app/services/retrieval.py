@@ -74,6 +74,7 @@ class PersonalMemoryRetriever:
             tool_calls=1,
             trace_id=trace_id,
             details={
+                "retrieved_moment_ids": [str(item.moment_id) for item in evidence],
                 "time_filter_applied": bool(time_from or time_to),
                 "temporal_coverage": temporal_coverage,
                 "requested_count": requested_count,

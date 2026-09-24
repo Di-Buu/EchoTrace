@@ -1,0 +1,31 @@
+{
+  "version": "core-product-risk-v1",
+  "purpose": "记得住、说得准、不过度概括；另设五组真实 A/B 隔离底线",
+  "case_ids": [
+    "memory_transient_mood",
+    "memory_stable_interest",
+    "memory_future_goal",
+    "memory_single_mention",
+    "memory_update_current",
+    "personal_fact_absent_author",
+    "personal_fact_supported_running",
+    "personal_fact_latest_state",
+    "companion_avoids_old_history",
+    "regression_companion_grounding",
+    "temporal_career_change",
+    "temporal_reading_habit",
+    "temporal_exercise_recovery",
+    "evidence_reading_pattern",
+    "evidence_social_counterexample",
+    "evidence_insufficient_single",
+    "evidence_conflicting_goal",
+    "evidence_reference_attribution",
+    "evidence_no_source_fact",
+    "overinfer_cancel_social",
+    "overinfer_late_procrastinator",
+    "overinfer_correlation_cause",
+    "overinfer_temporary_stress",
+    "regression_reasoning_counterexample"
+  ],
+  "isolation_pairs": 5
+}

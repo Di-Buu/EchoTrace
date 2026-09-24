@@ -8,9 +8,11 @@ from app.clients.ai import AiConfigurationError, AiResponseError
 from app.clients.supabase import SupabaseError
 from app.config import get_settings
 from app.routers import account, chat, insights, memories, moments, system, weekly_reports
+from app.runtime import source_fingerprint
 from app.services.retrieval import UserIsolationError
 
 settings = get_settings()
+runtime_fingerprint = source_fingerprint()
 logger = logging.getLogger("echotrace.ai")
 app = FastAPI(title="EchoTrace API", version="0.1.0")
 app.add_middleware(
@@ -58,4 +60,8 @@ async def isolation_error(_: Request, exc: UserIsolationError) -> JSONResponse:
 
 @app.get("/health")
 async def health() -> dict[str, str]:
-    return {"status": "ok", "service": "echotrace-api"}
+    return {
+        "status": "ok",
+        "service": "echotrace-api",
+        "runtime_fingerprint": runtime_fingerprint,
+    }
