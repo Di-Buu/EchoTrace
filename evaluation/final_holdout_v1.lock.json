@@ -1,0 +1,20 @@
+{
+  "status": "candidate_awaiting_user_confirmation",
+  "file": "evaluation/final_holdout_v1.json",
+  "sha256": "031dc4d8acdb5337e513099d6b97de2594776fdd045b78d2969cd1423cf455f9",
+  "hash_scope": "Exact UTF-8 bytes of all eight cases, all 80 Moment texts and dates, 30 expected evidence keys, and the complete scoring and stopping rubric in final_holdout_v1.json.",
+  "target_ai_commit": "e7f607015291f6dceb5aa4f9463537224520fcce",
+  "target_api_runtime_fingerprint": "26afc84bfb0bd75f5e80",
+  "expected_configuration": {
+    "execution_profile": "local_quality",
+    "chat_model": "qwen3.7-plus-2026-05-26",
+    "embedding_model": "qwen3.7-text-embedding",
+    "synthesizer_prompt": "synthesizer-v1.9",
+    "synthesis_audit_prompt": "synthesis-audit-v1.8"
+  },
+  "cases": 8,
+  "moments": 80,
+  "expected_evidence_targets": 30,
+  "holdout_model_calls_before_lock": 0,
+  "rule": "If the user rejects this candidate, replace it and compute a new hash before any execution. Once the user approves, neither cases nor criteria may be changed after observing any model output."
+}

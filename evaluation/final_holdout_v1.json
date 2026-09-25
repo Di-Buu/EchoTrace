@@ -1,0 +1,221 @@
+{
+  "schema_version": "final-holdout-v1",
+  "status": "candidate_awaiting_user_confirmation",
+  "target_ai_commit": "e7f607015291f6dceb5aa4f9463537224520fcce",
+  "case_count": 8,
+  "scoring": {
+    "scope": "Exactly one full execution after user approval; no historical-case replay, prompt/retrieval/workflow edits, or output-driven case/rubric edits.",
+    "workflow": "insight",
+    "llm_judge_final_authority": false,
+    "history_evidence_hit_rate": {
+      "numerator": "Across all eight cases, count each predeclared target Moment key once if its deterministic seeded Moment ID appears in the final Insight evidence list.",
+      "denominator": "Total count of predeclared target Moment keys in all eight cases (30).",
+      "not_credit": "Presence in retrieval Top-K alone, a source mentioned only in prose, or an unrelated evidence link earns no credit.",
+      "no_insight": "If a case produces no Insight, its target Moments remain in the denominator and contribute zero hits."
+    },
+    "grounded_insight_rate": {
+      "numerator": "Generated Insights for which every material personal claim in title, body and limitation is semantically supported by the cited original Moment(s), preserves chronology and uncertainty, and gives a substantive answer relevant to the request.",
+      "denominator": "All cases with HTTP 200 and an actual Insight.",
+      "human_rule": "A citation existing is insufficient. Review each material personal claim against full source text; one unsupported claim, wrong current/old state, wrong time span, or an empty/evasive answer despite sufficient evidence makes grounded=no. A cautious weak conclusion can pass."
+    },
+    "over_inference_rate": {
+      "numerator": "Generated Insights containing any unsupported stable trait, long-term trend, motive, strong cause, continuity, or unwarranted exclusion of alternatives.",
+      "denominator": "All cases with HTTP 200 and an actual Insight.",
+      "human_rule": "A qualifier such as 可能 does not automatically excuse an unsupported personal inference. Quoting a strong proposition solely to reject it does not count as over-inference."
+    },
+    "temporal_error": "Record as a groundedness failure reason, not a fourth headline metric.",
+    "objective_checks": [
+      "Dataset SHA-256 and target AI runtime fingerprint match the sealed manifest before login or data write.",
+      "Each case seeds exactly its ten declared Moments into a dedicated evaluation account, using deterministic IDs derived from case_id and zero-based history position.",
+      "Record HTTP status, all seeded IDs, retrieved Top-K IDs, final Insight evidence IDs, and whether any cited ID is outside the current test user's seeded set.",
+      "A foreign-user ID in retrieval, output, or final Evidence is a P0: stop immediately and do not process remaining cases."
+    ],
+    "manual_review": {
+      "required_columns": [
+        "case_id",
+        "relevant_original_moments",
+        "distractor_moments",
+        "retrieved_evidence",
+        "final_insight",
+        "material_claims",
+        "objective_checks",
+        "grounded_yes_no",
+        "over_inference_yes_no",
+        "failure_reason",
+        "reviewer_notes"
+      ],
+      "rules": "The human reviewer must inspect all eight outputs, including automatic passes; a generated Insight cannot be excluded from either semantic denominator. Keep ungenerated cases and errors visible separately. Do not use the model under test or an LLM Judge as final adjudicator."
+    },
+    "stopping": "Stop immediately for inability to run the core workflow or any cross-user leak. Record ordinary semantic failures as Known Issues; do not edit code or rerun the complete holdout."
+  },
+  "cases": [
+    {
+      "case_id": "H01_commute_mode_now",
+      "risk_group": "old_new_state",
+      "description": "Two-year commute change; old cycling must not be reported as the current default.",
+      "request": "从最早记录到现在，我上班通常怎么通勤？我现在还是每天骑车吗？",
+      "history": [
+        {"key": "H01-M01", "at": "2024-05-03T08:00:00Z", "text": "办公室离住处近，我这段时间工作日基本每天骑车过去，路上大约二十分钟。"},
+        {"key": "H01-M02", "at": "2024-07-18T08:00:00Z", "text": "周末买了个小书架，终于把散在地上的资料收起来了。"},
+        {"key": "H01-M03", "at": "2024-11-06T08:00:00Z", "text": "早上把冰箱里剩下的蔬菜煮成了汤。"},
+        {"key": "H01-M04", "at": "2025-01-12T08:00:00Z", "text": "最近在学做简单的表格，用来记录家里电费。"},
+        {"key": "H01-M05", "at": "2025-03-04T08:00:00Z", "text": "换了办公地点后路远了，我开始乘地铁上班；偶尔天气好才会骑车。"},
+        {"key": "H01-M06", "at": "2025-06-22T08:00:00Z", "text": "今天给厨房换了一个新的水龙头垫圈。"},
+        {"key": "H01-M07", "at": "2025-09-15T08:00:00Z", "text": "给外婆寄了她想看的两本杂志。"},
+        {"key": "H01-M08", "at": "2026-01-20T08:00:00Z", "text": "整理相册时发现去年的照片还没有备份。"},
+        {"key": "H01-M09", "at": "2026-05-11T08:00:00Z", "text": "最近两个月上班多数是先坐地铁再换公交，已经不再每天骑车通勤了。"},
+        {"key": "H01-M10", "at": "2026-08-03T08:00:00Z", "text": "今天又是地铁转公交去办公室；周五如果不赶时间，我有时会从车站步行最后一段。"}
+      ],
+      "expected_evidence_keys": ["H01-M01", "H01-M05", "H01-M09", "H01-M10"],
+      "expected_weak_conclusion": "早期基本每天骑车，后来以地铁为主，最近多数地铁转公交；现在不能说仍每天骑车，周五步行只是偶尔。",
+      "must_not_claim": ["目前仍每天骑车上班", "从未骑车通勤", "现在每天固定步行通勤"]
+    },
+    {
+      "case_id": "H02_volunteer_schedule_handover",
+      "risk_group": "old_new_state",
+      "description": "An old fixed volunteer shift was handed over; a later one-off visit must not revive the old routine.",
+      "request": "我现在还固定每个月去食物银行分装物资吗？这件事后来怎么变化的？",
+      "history": [
+        {"key": "H02-M01", "at": "2024-06-08T08:00:00Z", "text": "从这个月开始，我报名了食物银行每月第二个周六的物资分装班。"},
+        {"key": "H02-M02", "at": "2024-08-19T08:00:00Z", "text": "院子里的旧花盆裂了，暂时放到储物间。"},
+        {"key": "H02-M03", "at": "2024-12-14T08:00:00Z", "text": "今天照常去了食物银行的月度分装班，主要负责贴日期标签。"},
+        {"key": "H02-M04", "at": "2025-02-03T08:00:00Z", "text": "试着做了一次萝卜汤，盐放多了。"},
+        {"key": "H02-M05", "at": "2025-07-12T08:00:00Z", "text": "从下个月起我的周六常要照顾家里事务，固定分装班已经交接给另一位志愿者。"},
+        {"key": "H02-M06", "at": "2025-10-29T08:00:00Z", "text": "电脑里有些重复照片，删掉了一部分。"},
+        {"key": "H02-M07", "at": "2026-01-09T08:00:00Z", "text": "今天顺路把几件闲置雨衣送到社区收集点。"},
+        {"key": "H02-M08", "at": "2026-04-18T08:00:00Z", "text": "这次食物银行缺人，我临时去帮了半天；这不是重新接回固定排班。"},
+        {"key": "H02-M09", "at": "2026-06-02T08:00:00Z", "text": "给台灯换了灯泡，晚上桌面亮了些。"},
+        {"key": "H02-M10", "at": "2026-08-14T08:00:00Z", "text": "现在我没有食物银行的月度固定班，只会在时间合适且对方需要时偶尔帮忙。"}
+      ],
+      "expected_evidence_keys": ["H02-M01", "H02-M03", "H02-M05", "H02-M08", "H02-M10"],
+      "expected_weak_conclusion": "早期有固定月班；2025年已交接，2026年一次临时协助不代表恢复固定排班，当前只偶尔帮忙。",
+      "must_not_claim": ["现在仍每月固定去分装", "2026年4月重新承担固定班", "此后完全不再参与任何志愿活动"]
+    },
+    {
+      "case_id": "H03_neighbor_cat_three_days",
+      "risk_group": "single_action_not_trait",
+      "description": "A three-day favor and an explicit later boundary do not establish a stable animal-care identity.",
+      "request": "我替邻居照顾过猫，能说我一直想养猫、特别擅长照顾动物吗？",
+      "history": [
+        {"key": "H03-M01", "at": "2025-01-15T08:00:00Z", "text": "今天把窗帘拆下来洗了，花了半个上午。"},
+        {"key": "H03-M02", "at": "2025-03-02T08:00:00Z", "text": "天气暖了，换上薄一点的被套。"},
+        {"key": "H03-M03", "at": "2025-05-19T08:00:00Z", "text": "朋友推荐的面馆味道不错，不过要排队。"},
+        {"key": "H03-M04", "at": "2025-07-08T08:00:00Z", "text": "整理了一下抽屉里的保修单，终于找到了电饭煲的那张。"},
+        {"key": "H03-M05", "at": "2025-09-27T08:00:00Z", "text": "邻居出门三天，拜托我每天给他的猫添水和猫粮；这是我第一次独自照看猫。"},
+        {"key": "H03-M06", "at": "2025-11-04T08:00:00Z", "text": "帮家里把几双冬鞋从柜顶拿下来。"},
+        {"key": "H03-M07", "at": "2026-01-16T08:00:00Z", "text": "今天路过宠物店，看了一眼橱窗里的猫玩具，没有买。"},
+        {"key": "H03-M08", "at": "2026-03-23T08:00:00Z", "text": "晚上重新整理了收件箱里的旧邮件。"},
+        {"key": "H03-M09", "at": "2026-06-01T08:00:00Z", "text": "有人问我会不会自己养猫；我说目前没有这个打算，上次只是临时帮邻居。"},
+        {"key": "H03-M10", "at": "2026-08-12T08:00:00Z", "text": "周末买了一张新的浴室地垫。"}
+      ],
+      "expected_evidence_keys": ["H03-M05", "H03-M09"],
+      "expected_weak_conclusion": "只发生过一次三天的代照看，后续明确说目前不打算自己养猫；照看能力和长期身份无证据。",
+      "must_not_claim": ["一直想养猫", "长期擅长照顾动物", "已经成为稳定的养宠爱好"]
+    },
+    {
+      "case_id": "H04_one_coat_repair",
+      "risk_group": "single_action_not_trait",
+      "description": "One repaired coat must not become a stable ecological-consumption value or frugal personality.",
+      "request": "我有一次把旧外套缝好了，这能说明我长期坚持环保消费、一直不买新衣服吗？",
+      "history": [
+        {"key": "H04-M01", "at": "2024-09-05T08:00:00Z", "text": "搬家时把几个碗分别用报纸包好，没有摔碎。"},
+        {"key": "H04-M02", "at": "2024-11-21T08:00:00Z", "text": "试了家附近新开的杂货店，买了肥皂和电池。"},
+        {"key": "H04-M03", "at": "2025-02-10T08:00:00Z", "text": "周末去买了件新雨衣，旧的拉链已经坏了。"},
+        {"key": "H04-M04", "at": "2025-04-17T08:00:00Z", "text": "冰箱里的水果快坏了，做成果酱留到下周吃。"},
+        {"key": "H04-M05", "at": "2025-08-02T08:00:00Z", "text": "旧外套的袖口开了线，今天试着自己缝上；以前没怎么缝过衣服。"},
+        {"key": "H04-M06", "at": "2025-10-13T08:00:00Z", "text": "在车站捡到一本别人忘下的杂志，交给了工作人员。"},
+        {"key": "H04-M07", "at": "2026-01-29T08:00:00Z", "text": "家里的厨房纸用完了，记得下次采购时补上。"},
+        {"key": "H04-M08", "at": "2026-03-09T08:00:00Z", "text": "因为旧鞋已经不合脚，我买了一双新的通勤鞋。"},
+        {"key": "H04-M09", "at": "2026-05-26T08:00:00Z", "text": "去年缝外套只是临时试一次；我没有给自己定不买新衣服或只修不换的原则。"},
+        {"key": "H04-M10", "at": "2026-08-06T08:00:00Z", "text": "早上给门口的小地毯拍了灰。"}
+      ],
+      "expected_evidence_keys": ["H04-M03", "H04-M05", "H04-M08", "H04-M09"],
+      "expected_weak_conclusion": "有一次缝外套的记录，同时也有购买新雨衣、新鞋及明确否认长期原则的记录；不能推断稳定环保消费人格。",
+      "must_not_claim": ["长期坚持不买新衣服", "一贯奉行环保消费原则", "天生节俭"]
+    },
+    {
+      "case_id": "H05_grandmother_dumpling_notes",
+      "risk_group": "multi_relevant_memory",
+      "description": "Four recipe-detail moments must be distinguished from several other meal records.",
+      "request": "我记录过外婆教的芹菜饺子馅哪些做法？从最初记下到后来实际尝试，有哪些具体细节被补充或纠正？",
+      "history": [
+        {"key": "H05-M01", "at": "2024-02-06T08:00:00Z", "text": "今天煮了南瓜粥，水放多了。"},
+        {"key": "H05-M02", "at": "2024-04-13T08:00:00Z", "text": "外婆口述芹菜饺子馅：芹菜切细先挤掉一部分水，再和肉馅拌。"},
+        {"key": "H05-M03", "at": "2024-08-01T08:00:00Z", "text": "试着做了一次番茄鸡蛋面，面有点软。"},
+        {"key": "H05-M04", "at": "2024-11-18T08:00:00Z", "text": "舅舅教我炖萝卜汤要晚一点放盐。"},
+        {"key": "H05-M05", "at": "2025-01-25T08:00:00Z", "text": "和外婆核对饺子馅的调味：她说先放少量盐和姜末，搅拌后再尝，不要一开始加很多酱油。"},
+        {"key": "H05-M06", "at": "2025-05-06T08:00:00Z", "text": "买了一包速冻馄饨，忙的时候留着吃。"},
+        {"key": "H05-M07", "at": "2025-09-09T08:00:00Z", "text": "今天切了胡萝卜丝做凉拌菜，没用到芹菜。"},
+        {"key": "H05-M08", "at": "2026-02-02T08:00:00Z", "text": "第一次按外婆教的做芹菜饺子馅，芹菜挤水太用力，馅有点干；下次要少挤一点。"},
+        {"key": "H05-M09", "at": "2026-04-19T08:00:00Z", "text": "翻到一份香菇包子的做法，打算有空试试。"},
+        {"key": "H05-M10", "at": "2026-07-12T08:00:00Z", "text": "这次做芹菜饺子馅只轻轻攥掉一点水，盐也分两次加，口感比上次好。"}
+      ],
+      "expected_evidence_keys": ["H05-M02", "H05-M05", "H05-M08", "H05-M10"],
+      "expected_weak_conclusion": "区分外婆最初的挤水、调味建议与本人后来的两次尝试；不能把舅舅的萝卜汤建议误当饺子配方。",
+      "must_not_claim": ["外婆建议把芹菜完全挤干", "舅舅教的萝卜汤调味是饺子馅步骤", "外婆亲自做了2026年两次饺子"]
+    },
+    {
+      "case_id": "H06_lease_deposit_sequence",
+      "risk_group": "multi_relevant_memory",
+      "description": "Deposit-clause timeline among other bills and contracts; retain what was requested versus what was agreed.",
+      "request": "我在续租时关于押金条款先后记录了什么？哪些只是提出的要求，哪些最后写进了合同？",
+      "history": [
+        {"key": "H06-M01", "at": "2024-05-14T08:00:00Z", "text": "手机套餐这个月涨价了，准备查一下别的运营商。"},
+        {"key": "H06-M02", "at": "2024-09-20T08:00:00Z", "text": "给电力公司提交了上个月账单的抄表疑问。"},
+        {"key": "H06-M03", "at": "2025-02-03T08:00:00Z", "text": "开始准备续租，旧合同只写押金退还要看房屋情况，没有写验房后几天退。"},
+        {"key": "H06-M04", "at": "2025-04-07T08:00:00Z", "text": "车险续保通知到了，价格比去年高一点。"},
+        {"key": "H06-M05", "at": "2025-07-28T08:00:00Z", "text": "这个月的水费单已付，金额与上月差不多。"},
+        {"key": "H06-M06", "at": "2025-10-11T08:00:00Z", "text": "我向房东提出希望在续租合同里写明验房后七天内退押金；对方说要先看合同草稿。"},
+        {"key": "H06-M07", "at": "2025-12-01T08:00:00Z", "text": "整理了公交卡的扣费记录，发现一笔重复扣款。"},
+        {"key": "H06-M08", "at": "2026-03-16T08:00:00Z", "text": "房东发来的草稿写成验房后十四天退押金；我还没确认接受这个版本。"},
+        {"key": "H06-M09", "at": "2026-05-03T08:00:00Z", "text": "给宽带办了续费，合同期限是一年。"},
+        {"key": "H06-M10", "at": "2026-08-08T08:00:00Z", "text": "最终签的续租合同写的是验房后十天内退押金；我保存了双方签字的那一版。"}
+      ],
+      "expected_evidence_keys": ["H06-M03", "H06-M06", "H06-M08", "H06-M10"],
+      "expected_weak_conclusion": "旧合同无明确天数；本人提过七天；十四天只是未接受草稿；最终签字版为十天。不能把诉求或草稿当最终事实。",
+      "must_not_claim": ["最终合同约定七天内退押金", "已经接受十四天草稿", "旧合同原本就写明十天"]
+    },
+    {
+      "case_id": "H07_market_sign_and_sales",
+      "risk_group": "weak_not_strong_cause",
+      "description": "Observed sales and a changed display sign coexist with holiday and opening-hour changes; no causal attribution.",
+      "request": "换了摊位牌子以后小物件卖得多些，能说牌子就是销量增加的主要原因吗？",
+      "history": [
+        {"key": "H07-M01", "at": "2025-01-12T08:00:00Z", "text": "把厨房抽屉里的量勺重新排了一下。"},
+        {"key": "H07-M02", "at": "2025-03-02T08:00:00Z", "text": "三月第一场社区市集，我的手作小物卖出四件；那天只摆了上午半天。"},
+        {"key": "H07-M03", "at": "2025-05-17T08:00:00Z", "text": "隔壁楼的电梯保养，今天走了楼梯。"},
+        {"key": "H07-M04", "at": "2025-07-09T08:00:00Z", "text": "给自己的钥匙串换了一个新挂环。"},
+        {"key": "H07-M05", "at": "2025-10-05T08:00:00Z", "text": "十月市集前换了一块字更大的摊位牌子，这次还第一次把摊位开到下午。"},
+        {"key": "H07-M06", "at": "2025-12-20T08:00:00Z", "text": "收到了朋友寄来的明信片，画的是海边。"},
+        {"key": "H07-M07", "at": "2026-02-01T08:00:00Z", "text": "节日前那场市集人比三月多，我卖出九件小物；没有记录顾客是否因为牌子才停下。"},
+        {"key": "H07-M08", "at": "2026-04-14T08:00:00Z", "text": "今天试做了一盘烤蔬菜，火候稍微过了。"},
+        {"key": "H07-M09", "at": "2026-06-07T08:00:00Z", "text": "六月这场仍用新牌子但下雨，我提前收摊，只卖出三件。"},
+        {"key": "H07-M10", "at": "2026-08-02T08:00:00Z", "text": "给窗边的椅子加了一个坐垫。"}
+      ],
+      "expected_evidence_keys": ["H07-M02", "H07-M05", "H07-M07", "H07-M09"],
+      "expected_weak_conclusion": "只能说更换牌子与部分场次销量变化同时发生；摆摊时长、节日人流、雨天等同时变化，无法确定主因。",
+      "must_not_claim": ["牌子是销量增加的主要原因", "新牌子每次都让销量上升", "销量变化证明用户很会营销"]
+    },
+    {
+      "case_id": "H08_family_letters_motive",
+      "risk_group": "weak_not_strong_cause",
+      "description": "Two episodes of sorting old letters do not establish a reconciliation motive or uninterrupted long-term project.",
+      "request": "我整理家里的旧信，是不是因为一直想修复和父亲的关系，而且这件事我长期都在坚持？",
+      "history": [
+        {"key": "H08-M01", "at": "2024-10-03T08:00:00Z", "text": "把阳台上的几个纸箱挪进了储藏室。"},
+        {"key": "H08-M02", "at": "2024-12-21T08:00:00Z", "text": "今天帮母亲检查了手机里的照片有没有备份。"},
+        {"key": "H08-M03", "at": "2025-02-09T08:00:00Z", "text": "整理柜子时发现一盒父亲年轻时写的旧信，我只粗略按年份分了几叠。"},
+        {"key": "H08-M04", "at": "2025-04-18T08:00:00Z", "text": "周末和父亲通了电话，主要聊家里漏水的维修安排。"},
+        {"key": "H08-M05", "at": "2025-06-30T08:00:00Z", "text": "书桌上的旧台历终于换掉了。"},
+        {"key": "H08-M06", "at": "2025-09-07T08:00:00Z", "text": "从储藏室翻出一张过期的家具保修卡，扔进回收箱。"},
+        {"key": "H08-M07", "at": "2026-01-15T08:00:00Z", "text": "今天扫描了那盒旧信里的六张照片和两封信，准备以后再慢慢看内容。"},
+        {"key": "H08-M08", "at": "2026-03-26T08:00:00Z", "text": "和姐姐讨论了家里旧相册要不要重新装订，还没决定。"},
+        {"key": "H08-M09", "at": "2026-06-10T08:00:00Z", "text": "旧信整理只做过前面两次，最近忙别的事还没有继续；我也没说过整理它们的具体原因。"},
+        {"key": "H08-M10", "at": "2026-08-19T08:00:00Z", "text": "今天换了厨房的抹布，顺手擦了桌子。"}
+      ],
+      "expected_evidence_keys": ["H08-M03", "H08-M07", "H08-M09"],
+      "expected_weak_conclusion": "记录只证明两次整理/扫描和后来暂停；父亲通话内容不能证明修复关系动机，也不能说一直持续。",
+      "must_not_claim": ["整理旧信是为了修复父子关系", "一直坚持整理旧信", "父亲与用户关系已经修复"]
+    }
+  ]
+}
