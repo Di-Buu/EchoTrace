@@ -56,7 +56,7 @@ class SynthesisAuditOutput(BaseModel):
     checks: list[SynthesisAuditCheck] = Field(default_factory=list, max_length=30)
 
 
-AGENT_VERSION = "insight-team-v1.6"
+AGENT_VERSION = "insight-team-v1.8"
 
 # These expressions frequently turn a dated observation into an unsupported
 # personal cause, stable state or preference. If a source uses the same wording,
@@ -312,7 +312,10 @@ class InsightEngine:
         audit = await self._audit_synthesis(
             user, question, evidence_payload, accepted, synthesis, trace_id, attempt=1
         )
-        if not audit.supported:
+        max_repairs = 2 if trigger_type == "user_query" and len(evidence_payload) >= 2 else 1
+        for repair_number in range(1, max_repairs + 1):
+            if audit.supported:
+                break
             synthesis, repair_meta = await self.ai.structured_chat(
                 system=SYNTHESIZER_SYSTEM,
                 user=json.dumps(
@@ -345,13 +348,18 @@ class InsightEngine:
                 repair_meta,
                 evidence_count=len(allowed_ids),
                 trace_id=trace_id,
-                details={"accepted_claims": len(accepted), "verification_status": final_status, "attempt": 2},
+                details={
+                    "accepted_claims": len(accepted),
+                    "verification_status": final_status,
+                    "attempt": repair_number + 1,
+                },
             )
             audit = await self._audit_synthesis(
-                user, question, evidence_payload, accepted, synthesis, trace_id, attempt=2
+                user, question, evidence_payload, accepted, synthesis, trace_id,
+                attempt=repair_number + 1,
             )
-            if not audit.supported:
-                raise InsufficientEvidenceError("洞察成稿未通过原始记录核验")
+        if not audit.supported:
+            raise InsufficientEvidenceError("洞察成稿未通过原始记录核验")
 
         starts = [claim.time_start for claim in accepted if claim.time_start]
         ends = [claim.time_end for claim in accepted if claim.time_end]
@@ -645,14 +653,29 @@ class InsightEngine:
     ) -> list[str]:
         source_text = "\n".join(str(item["moment_content"]) for item in evidence_payload)
         visible_claims = f"{synthesis.title}\n{synthesis.body}"
-        return list(
-            dict.fromkeys(
-                match.group(0)
-                for pattern in UNSUPPORTED_PERSONAL_RISK_PATTERNS
-                for match in re.finditer(pattern, visible_claims)
-                if match.group(0) not in source_text
+        phrases = [
+            match.group(0)
+            for pattern in UNSUPPORTED_PERSONAL_RISK_PATTERNS
+            for match in re.finditer(pattern, visible_claims)
+            if match.group(0) not in source_text
+        ]
+        # A dated, qualified frequency must not become an unqualified habit when
+        # the synthesis repeats the same count in a later sentence.
+        qualified_counts = {
+            match.group(1)
+            for match in re.finditer(
+                r"大多[^。！？\n]{0,30}?每周[^，。！？；\n]{0,6}?([一二三四五六七八九十\d]+)次",
+                source_text,
             )
-        )
+        }
+        for sentence in re.split(r"[。！？；\n]+", visible_claims):
+            if not sentence.strip() or "大多" in sentence or "多数" in sentence:
+                continue
+            for count in qualified_counts:
+                if re.search(rf"每周[^，。！？；\n]{{0,6}}?{re.escape(count)}次", sentence):
+                    phrases.append(sentence.strip())
+                    break
+        return list(dict.fromkeys(phrases))
 
     def _quality_reasoning_options(self) -> dict:
         return {

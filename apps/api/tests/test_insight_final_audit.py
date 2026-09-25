@@ -116,7 +116,32 @@ def make_engine(db: FakeDb, ai: FakeAi) -> InsightEngine:
     return engine
 
 
-async def analyze(engine: InsightEngine) -> dict:
+async def analyze(engine: InsightEngine, *, extra_evidence_count: int = 0) -> dict:
+    evidence = [
+        RetrievedEvidence(
+            memory_id=None,
+            memory_content="",
+            memory_type="moment",
+            confidence=1,
+            moment_id=MOMENT_ID,
+            moment_content="最近六周大多能保持每周读三次。",
+            occurred_at=datetime(2026, 5, 10, tzinfo=UTC),
+            score=1,
+        )
+    ]
+    for index in range(extra_evidence_count):
+        evidence.append(
+            RetrievedEvidence(
+                memory_id=None,
+                memory_content="",
+                memory_type="moment",
+                confidence=1,
+                moment_id=UUID(int=MOMENT_ID.int + index + 1),
+                moment_content="此前开始把阅读安排在晚饭后。",
+                occurred_at=datetime(2026, 3, 10, tzinfo=UTC),
+                score=1,
+            )
+        )
     return await engine._analyze_and_store(
         user=UserContext(id=USER_ID, access_token="test-token"),
         question="我的阅读情况怎么样？",
@@ -126,18 +151,7 @@ async def analyze(engine: InsightEngine) -> dict:
             insight_type="fact",
             retrieval_query="阅读",
         ),
-        evidence=[
-            RetrievedEvidence(
-                memory_id=None,
-                memory_content="",
-                memory_type="moment",
-                confidence=1,
-                moment_id=MOMENT_ID,
-                moment_content="最近六周大多能保持每周读三次。",
-                occurred_at=datetime(2026, 5, 10, tzinfo=UTC),
-                score=1,
-            )
-        ],
+        evidence=evidence,
         trigger_type="user_query",
         trace_id="trace-1",
     )
@@ -165,6 +179,31 @@ async def test_twice_unsupported_synthesis_is_not_published() -> None:
     with pytest.raises(InsufficientEvidenceError, match="成稿未通过"):
         await analyze(make_engine(db, ai))
 
+    assert db.inserted == []
+
+
+@pytest.mark.asyncio
+async def test_evidence_rich_user_query_can_pass_after_second_bounded_repair() -> None:
+    db = FakeDb()
+    ai = FakeAi([False, False, True])
+
+    result = await analyze(make_engine(db, ai), extra_evidence_count=1)
+
+    assert result["title"] == "最近六周的阅读记录"
+    assert len(ai.synthesis_inputs) == 3
+    assert ai.synthesis_inputs[2]["audit_feedback"]["unsupported_phrases"]
+    assert [table for table, _ in db.inserted] == ["insights", "insight_evidence"]
+
+
+@pytest.mark.asyncio
+async def test_evidence_rich_user_query_still_rejects_three_unsupported_drafts() -> None:
+    db = FakeDb()
+    ai = FakeAi([False, False, False])
+
+    with pytest.raises(InsufficientEvidenceError, match="成稿未通过"):
+        await analyze(make_engine(db, ai), extra_evidence_count=1)
+
+    assert len(ai.synthesis_inputs) == 3
     assert db.inserted == []
 
 
@@ -198,6 +237,23 @@ def test_risk_guard_catches_unrecorded_personal_inference(body: str) -> None:
     synthesis = SynthesisOutput(title="记录观察", body=body)
     evidence = [{"moment_content": "最近六周大多能保持每周读三次。"}]
     assert InsightEngine._unsupported_risk_phrases(synthesis, evidence)
+
+
+def test_repeated_weekly_frequency_must_keep_source_uncertainty() -> None:
+    evidence = [{"moment_content": "最近六周大多能保持每周读三次。"}]
+    unsupported = SynthesisOutput(
+        title="阅读记录",
+        body="最近六周大多每周读三次。在3月安排后维持了每周三次的频率。",
+    )
+    supported = SynthesisOutput(
+        title="阅读记录",
+        body="截至5月记录，最近六周大多每周读三次。",
+    )
+
+    assert "在3月安排后维持了每周三次的频率" in InsightEngine._unsupported_risk_phrases(
+        unsupported, evidence
+    )
+    assert not InsightEngine._unsupported_risk_phrases(supported, evidence)
 
 
 @pytest.mark.asyncio
