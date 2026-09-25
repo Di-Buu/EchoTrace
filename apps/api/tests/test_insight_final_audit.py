@@ -21,7 +21,6 @@ from app.services.insights import (
     SynthesisAuditOutput,
 )
 
-
 MOMENT_ID = UUID("11111111-1111-1111-1111-111111111111")
 USER_ID = UUID("22222222-2222-2222-2222-222222222222")
 
@@ -43,10 +42,12 @@ class FakeAi:
     def __init__(
         self, audit_results: list[bool], *, omit_last_check: bool = False,
         first_body: str = "用户已建立稳定的阅读习惯。",
+        audit_source_ids: list[UUID] | None = None,
     ) -> None:
         self.audit_results = iter(audit_results)
         self.omit_last_check = omit_last_check
         self.first_body = first_body
+        self.audit_source_ids = audit_source_ids or [MOMENT_ID]
         self.synthesis_inputs: list[dict] = []
 
     async def structured_chat(self, **kwargs: object) -> tuple[object, dict]:
@@ -76,7 +77,7 @@ class FakeAi:
                 SynthesisAuditCheck(
                     segment_id=segment["segment_id"],
                     supported=supported,
-                    source_moment_ids=[MOMENT_ID],
+                    source_moment_ids=self.audit_source_ids,
                     reason="原文支持" if supported else "超出原文",
                 )
                 for segment in segments
@@ -219,6 +220,18 @@ async def test_incomplete_sentence_audit_is_not_published() -> None:
     assert db.inserted == []
 
 
+@pytest.mark.asyncio
+async def test_audit_cannot_attach_a_moment_outside_retrieved_evidence() -> None:
+    db = FakeDb()
+    unrelated_id = UUID(int=MOMENT_ID.int + 100)
+    ai = FakeAi([True, True], audit_source_ids=[unrelated_id])
+
+    with pytest.raises(InsufficientEvidenceError, match="成稿未通过"):
+        await analyze(make_engine(db, ai))
+
+    assert db.inserted == []
+
+
 @pytest.mark.parametrize(
     "body",
     [
@@ -266,3 +279,75 @@ async def test_rule_guard_repairs_even_when_model_audit_approves() -> None:
     assert len(ai.synthesis_inputs) == 2
     assert "可能与频率有关" in ai.synthesis_inputs[1]["audit_feedback"]["unsupported_phrases"]
     assert "可能与" not in result["body"]
+
+
+@pytest.mark.asyncio
+async def test_final_audit_sources_are_persisted_even_if_upstream_claim_omitted_them() -> None:
+    db = FakeDb()
+    second_id = UUID(int=MOMENT_ID.int + 1)
+    ai = FakeAi([True], first_body="用户说最近六周大多每周读三次。", audit_source_ids=[MOMENT_ID, second_id])
+
+    result = await analyze(make_engine(db, ai), extra_evidence_count=1)
+
+    assert {row["moment_id"] for row in result["evidence"]} == {str(MOMENT_ID), str(second_id)}
+
+
+def test_dated_cooccurrence_does_not_license_causal_wording() -> None:
+    source_id = str(MOMENT_ID)
+    checks = {0: SynthesisAuditCheck(segment_id=0, supported=True, source_moment_ids=[MOMENT_ID], reason="ok")}
+    evidence = [
+        {
+            "moment_id": source_id,
+            "moment_content": "这周出差，连续两次没有跑步。",
+            "occurred_at": "2026-03-01T08:00:00Z",
+        }
+    ]
+
+    assert InsightEngine._unsupported_structured_claims(
+        [{"segment_id": 0, "text": "当周因出差连续两次没有跑步"}], checks, evidence
+    )
+    evidence[0]["moment_content"] = "这周因为出差连续两次没有跑步。"
+    assert not InsightEngine._unsupported_structured_claims(
+        [{"segment_id": 0, "text": "当周因出差连续两次没有跑步"}], checks, evidence
+    )
+
+
+def test_two_isolated_events_do_not_establish_continuous_activity() -> None:
+    second_id = UUID(int=MOMENT_ID.int + 1)
+    checks = {
+        0: SynthesisAuditCheck(segment_id=0, supported=True, source_moment_ids=[MOMENT_ID, second_id], reason="ok")
+    }
+    evidence = [
+        {"moment_id": str(MOMENT_ID), "moment_content": "这周开始学摄影。", "occurred_at": "2026-01-05T08:00:00Z"},
+        {"moment_id": str(second_id), "moment_content": "周末又出去拍了照片。", "occurred_at": "2026-02-05T08:00:00Z"},
+    ]
+
+    assert InsightEngine._unsupported_structured_claims(
+        [{"segment_id": 0, "text": "摄影活动仍在持续"}], checks, evidence
+    )
+
+
+def test_record_span_is_computed_from_cited_moment_dates() -> None:
+    second_id = UUID(int=MOMENT_ID.int + 1)
+    checks = {
+        0: SynthesisAuditCheck(segment_id=0, supported=True, source_moment_ids=[MOMENT_ID, second_id], reason="ok")
+    }
+    evidence = [
+        {
+            "moment_id": str(MOMENT_ID),
+            "moment_content": "这周因为生病没有去跑步。",
+            "occurred_at": "2026-02-09T08:00:00Z",
+        },
+        {
+            "moment_id": str(second_id),
+            "moment_content": "过去三周都保持每周跑两次。",
+            "occurred_at": "2026-03-09T08:00:00Z",
+        },
+    ]
+
+    assert InsightEngine._unsupported_structured_claims(
+        [{"segment_id": 0, "text": "现有记录的时间跨度为三周"}], checks, evidence
+    )
+    assert not InsightEngine._unsupported_structured_claims(
+        [{"segment_id": 0, "text": "现有记录的时间跨度为四周"}], checks, evidence
+    )

@@ -32,7 +32,7 @@
     "reason": "A stated situational cause does not rule out other unobserved motives or long-term preferences."
   },
   "synthesis_audit": {
-    "current": "synthesis-audit-v1.7",
-    "reason": "Preserve uncertainty quantifiers such as 'mostly' whenever a sourced weekly frequency is repeated in the final answer."
+    "current": "synthesis-audit-v1.8",
+    "reason": "Bind every final sentence to all original Moment sources it uses, and validate explicit causality, continuity and record-span claims."
   }
 }

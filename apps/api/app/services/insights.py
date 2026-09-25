@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import json
 import re
+from datetime import datetime
 from typing import Literal
 from uuid import UUID, uuid4
 
@@ -56,7 +57,13 @@ class SynthesisAuditOutput(BaseModel):
     checks: list[SynthesisAuditCheck] = Field(default_factory=list, max_length=30)
 
 
-AGENT_VERSION = "insight-team-v1.8"
+AGENT_VERSION = "insight-team-v1.9"
+
+CHINESE_NUMBERS = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
+CAUSAL_MARKER = re.compile(r"因为|由于|所以|导致|(?<!原)因(?!果|此|而)")
+CONTINUITY_MARKER = re.compile(r"一直|持续|连续|(?:过去|最近)[^，。！？；\n]{0,8}[周月年]")
+NEGATED_CLAIM = re.compile(r"无法|不能|不足以|不代表|不等于|未知|缺乏|不能确定|无法确定|未能证明")
+RECORD_SPAN_WEEKS = re.compile(r"(?:现有)?记录(?:的)?时间跨度(?:为|是)([一二三四五六七八九十\d]+)周")
 
 # These expressions frequently turn a dated observation into an unsupported
 # personal cause, stable state or preference. If a source uses the same wording,
@@ -413,6 +420,20 @@ class InsightEngine:
                         "stance": "counter",
                     }
                 )
+        # The final audit checks the actual user-facing wording. Its source IDs
+        # may include a dated fact that no earlier Specialist claim selected.
+        # Do not display that fact while silently omitting its Moment link.
+        for check in audit.checks:
+            for moment_id in check.source_moment_ids:
+                evidence_rows.append(
+                    {
+                        "insight_id": insight["id"],
+                        "moment_id": str(moment_id),
+                        "memory_id": memory_by_moment.get(str(moment_id)),
+                        "user_id": str(user.id),
+                        "stance": "support",
+                    }
+                )
         deduped = {(row["moment_id"], row["stance"]): row for row in evidence_rows}
         if deduped:
             await self.db.insert("insight_evidence", user.access_token, list(deduped.values()))
@@ -608,6 +629,8 @@ class InsightEngine:
         allowed_ids = {item["moment_id"] for item in evidence_payload}
         complete = len(output.checks) == len(segments) and set(checks) == expected_ids
         risk_phrases = self._unsupported_risk_phrases(synthesis, evidence_payload)
+        risk_phrases.extend(self._unsupported_structured_claims(segments, checks, evidence_payload))
+        risk_phrases = list(dict.fromkeys(risk_phrases))
         failed_segments = [
             item["text"]
             for item in segments
@@ -676,6 +699,54 @@ class InsightEngine:
                     phrases.append(sentence.strip())
                     break
         return list(dict.fromkeys(phrases))
+
+    @staticmethod
+    def _unsupported_structured_claims(
+        segments: list[dict],
+        checks: dict[int, SynthesisAuditCheck],
+        evidence_payload: list[dict],
+    ) -> list[str]:
+        source_by_id = {str(item["moment_id"]): item for item in evidence_payload}
+        risks: list[str] = []
+        used_ids = {
+            str(moment_id)
+            for check in checks.values()
+            for moment_id in check.source_moment_ids
+            if str(moment_id) in source_by_id
+        }
+        used_dates = [
+            datetime.fromisoformat(str(source_by_id[moment_id]["occurred_at"]).replace("Z", "+00:00")).date()
+            for moment_id in used_ids
+        ]
+        span_weeks = None
+        if len(used_dates) >= 2:
+            span_days = (max(used_dates) - min(used_dates)).days
+            if span_days % 7 == 0:
+                span_weeks = span_days // 7
+        for segment in segments:
+            part = segment["text"]
+            check = checks.get(segment["segment_id"])
+            if not check:
+                continue
+            sources = [
+                source_by_id[str(moment_id)]
+                for moment_id in check.source_moment_ids
+                if str(moment_id) in source_by_id
+            ]
+            source_texts = [str(item["moment_content"]) for item in sources]
+            for clause in re.split(r"[，,：:]+", part):
+                if NEGATED_CLAIM.search(clause):
+                    continue
+                if CAUSAL_MARKER.search(clause) and not any(CAUSAL_MARKER.search(text) for text in source_texts):
+                    risks.append(clause.strip())
+                if "持续" in clause and not any(CONTINUITY_MARKER.search(text) for text in source_texts):
+                    risks.append(clause.strip())
+            match = RECORD_SPAN_WEEKS.search(part)
+            if match and span_weeks is not None:
+                claimed = CHINESE_NUMBERS.get(match.group(1)) if not match.group(1).isdigit() else int(match.group(1))
+                if claimed != span_weeks:
+                    risks.append(part)
+        return list(dict.fromkeys(risks))
 
     def _quality_reasoning_options(self) -> dict:
         return {

@@ -6,7 +6,7 @@ TEMPORAL_VERSION = "temporal-v1"
 PATTERN_VERSION = "pattern-v1"
 VERIFIER_VERSION = "verifier-v1.2"
 SYNTHESIZER_VERSION = "synthesizer-v1.9"
-SYNTHESIS_AUDIT_VERSION = "synthesis-audit-v1.7"
+SYNTHESIS_AUDIT_VERSION = "synthesis-audit-v1.8"
 
 PROMPT_VERSIONS = {
     "memory_curator": MEMORY_CURATOR_VERSION,
@@ -135,6 +135,8 @@ SYNTHESIS_AUDIT_SYSTEM = """你是 EchoTrace 的 Evidence Verifier，负责在�
 即使用“可能”也不能把少量不同情境强行概括为用户的一般规律；可以只描述已观察到的各次差异。
 输入会把标题、正文和局限性拆成带 segment_id 的片段；必须对每个片段分别返回一条 checks，不得遗漏或只给整体判断。
 每个片段需要指出真实支持它的 source_moment_ids。末句若新添“可能与……有关”等未经验证的关系，也必须判为不支持。
+每个片段的 source_moment_ids 必须包含该片段实际使用的所有原始 Moment，不可仅照抄上游 claim 的来源。
+最终展示的证据链接会采用这些 ID。
 即使推断听起来合理，只要 Moment 没有明确说明原因、一般影响关系或持续状态，都不能用“可能”来放行。
 检查“多次”修饰的每个并列属性是否各有多条独立记录；一次积极或容易的体验不能借其他仅同时间/同行为记录变成重复模式。
 若仅有两次特定情境，不得把它们概括为用户的“倾向”；可以逐次描述，并明确反例。
