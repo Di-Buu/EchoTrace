@@ -56,7 +56,7 @@ class SynthesisAuditOutput(BaseModel):
     checks: list[SynthesisAuditCheck] = Field(default_factory=list, max_length=30)
 
 
-AGENT_VERSION = "insight-team-v1.5"
+AGENT_VERSION = "insight-team-v1.6"
 
 # These expressions frequently turn a dated observation into an unsupported
 # personal cause, stable state or preference. If a source uses the same wording,
