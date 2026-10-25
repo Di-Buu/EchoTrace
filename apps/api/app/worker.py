@@ -141,8 +141,14 @@ async def execute(job, settings):
         await db.aclose()
 
 
+def standalone_worker_settings(settings):
+    # A Vercel daemon is a standalone process, not a short-lived HTTP function.
+    # Platform VERCEL=1 must not silently switch off quality reasoning here.
+    return settings.model_copy(update={"vercel": False, "insight_execution_profile": "local_quality"})
+
+
 async def main():
-    settings = get_settings()
+    settings = standalone_worker_settings(get_settings())
     if not settings.supabase_service_role_key:
         raise RuntimeError("缺少 Worker 服务端凭据")
     db = SupabaseClient(settings.model_copy(update={"supabase_anon_key": settings.supabase_service_role_key}))

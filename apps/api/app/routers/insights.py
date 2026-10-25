@@ -4,6 +4,7 @@ from uuid import UUID
 from fastapi import APIRouter, Header, HTTPException, Query, Request
 from pydantic import BaseModel
 
+from app.config import get_settings
 from app.dependencies import CurrentUser, Database
 from app.domain import InsightQuery
 from app.service_dependencies import Insights
@@ -64,6 +65,8 @@ async def query_insight(
     engine: Insights,
     idempotency_key: str | None = Header(default=None),
 ) -> dict:
+    if not get_settings().background_tasks_available:
+        raise HTTPException(503, "后台整理服务尚未启用，请稍后再试")
     task = await submit(db, user, "analysis", payload.model_dump(mode="json"), idempotency_key)
     logging.getLogger("echotrace.tasks").info(
         "analysis_accepted request_id=%s task_id=%s", getattr(request.state, "request_id", "unknown"), task["id"]
@@ -73,6 +76,8 @@ async def query_insight(
 
 @router.post("/refresh", status_code=202)
 async def refresh_automatic(user: CurrentUser, db: Database) -> dict:
+    if not get_settings().background_tasks_available:
+        raise HTTPException(503, "后台整理服务尚未启用，请稍后再试")
     task = await submit(
         db,
         user,

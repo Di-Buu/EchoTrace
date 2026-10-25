@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     insight_ai_timeout_seconds: float = Field(default=120.0, ge=10, le=300)
     insight_enable_thinking: bool = True
     vercel: bool = False
+    durable_worker_enabled: bool = False
     supabase_service_role_key: str = ""
     worker_poll_seconds: float = Field(default=2, ge=0.1, le=60)
     task_timeout_seconds: int = Field(default=600, ge=30, le=1800)
@@ -36,6 +37,10 @@ class Settings(BaseSettings):
     analysis_strategy: Literal["dynamic", "fixed"] = "dynamic"
     agent_max_parallel: int = Field(default=2, ge=1, le=4)
     agent_max_input_characters: int = Field(default=50000, ge=4000, le=100000)
+
+    @property
+    def background_tasks_available(self) -> bool:
+        return self.durable_worker_enabled or (not self.vercel and self.insight_execution_profile == "local_quality")
 
     @property
     def use_quality_insight_reasoning(self) -> bool:

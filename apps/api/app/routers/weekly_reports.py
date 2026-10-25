@@ -51,7 +51,7 @@ async def ensure_weekly_reports(
     engine: Insights,
 ) -> dict:
     settings = get_settings()
-    if settings.vercel or settings.insight_execution_profile == "online_demo":
+    if not settings.background_tasks_available:
         raise HTTPException(503, "在线周报后台任务尚未启用")
     retriever = PersonalMemoryRetriever(db, ai)
     service = WeeklyReportService(db, ai, retriever, engine, settings)
