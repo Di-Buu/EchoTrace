@@ -43,6 +43,22 @@ EchoTrace 的设计目标是不以一条情绪记录定义一个人。原始记�
 
 后端使用独立 Worker 处理索引和耗时分析。新代码需要配套应用新增迁移；提交深度分析后返回任务，客户端随后查看进度。当前线上 Demo 未同步这些更新。
 
+### 已配置环境：一条命令启动
+
+在项目根目录运行：
+
+```powershell
+.\apps\api\.venv\Scripts\python.exe tools/run_local_quality.py
+```
+
+然后打开 http://127.0.0.1:8081/ ，注册或登录本地账号。保持终端运行；按 `Ctrl+C` 停止网页、API 和 Worker，数据库与记录保留。默认调用真实百炼，会消耗额度。
+
+这条命令适用于作者已初始化的 Windows 本地环境：Docker Desktop、隔离 Supabase、迁移和依赖已准备好。脚本目前包含该环境的路径配置，不能仅克隆仓库就直接用于任意电脑；新电脑请按下面的手动方式配置。本地账号和云端 Demo 账号相互独立。
+
+只检查环境、不启动应用可加 `--check-only`；使用模拟回答体验界面可加 `--mock`，模拟回答不代表真实 AI 效果。
+
+### 新环境：手动配置与启动
+
 需要 Python 3.12、Node.js、Supabase 项目及百炼 API 凭据。先按 [`apps/api/.env.example`](apps/api/.env.example) 与 [`apps/mobile/.env.example`](apps/mobile/.env.example) 配置各自的 `.env`，并应用 [`supabase/migrations`](supabase/migrations) 中的数据库迁移。真实密钥不要提交到 Git。
 
 启动 API：
