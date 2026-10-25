@@ -25,14 +25,21 @@ class Settings(BaseSettings):
     insight_ai_timeout_seconds: float = Field(default=120.0, ge=10, le=300)
     insight_enable_thinking: bool = True
     vercel: bool = False
+    supabase_service_role_key: str = ""
+    worker_poll_seconds: float = Field(default=2, ge=0.1, le=60)
+    task_timeout_seconds: int = Field(default=600, ge=30, le=1800)
+    task_lease_seconds: int = Field(default=45, ge=15, le=300)
+    agent_max_steps: int = Field(default=5, ge=1, le=10)
+    agent_max_calls: int = Field(default=24, ge=2, le=60)
+    agent_max_tokens: int = Field(default=80000, ge=1000, le=200000)
+    retrieval_fusion: Literal["rrf", "legacy"] = "rrf"
+    analysis_strategy: Literal["dynamic", "fixed"] = "dynamic"
+    agent_max_parallel: int = Field(default=2, ge=1, le=4)
+    agent_max_input_characters: int = Field(default=50000, ge=4000, le=100000)
 
     @property
     def use_quality_insight_reasoning(self) -> bool:
-        return (
-            not self.vercel
-            and self.insight_execution_profile == "local_quality"
-            and self.insight_enable_thinking
-        )
+        return not self.vercel and self.insight_execution_profile == "local_quality" and self.insight_enable_thinking
 
     @property
     def supabase_rest_url(self) -> str:

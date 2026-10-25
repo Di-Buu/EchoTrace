@@ -1,6 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   FlatList,
@@ -29,29 +29,39 @@ export default function HollowScreen() {
   const [messages, setMessages] = useState<LocalMessage[]>([]);
   const [sending, setSending] = useState(false);
   const [notice, setNotice] = useState('');
+  const captureKey = useRef<{ content: string; key: string } | null>(null);
+  const chatKey = useRef<{ signature: string; key: string } | null>(null);
+  const draftVersion = useRef(0);
   const [ripple] = useState(() => new Animated.Value(0));
 
   // Router params are external navigation state; synchronizing them here is intentional.
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (params.threadId) {
+      let active = true;
       setMode('chat');
       setThreadId(params.threadId);
       setSourceMomentId(null);
+      setDraft('');
+      setMessages([]);
       setNotice('正在接上之前的对话…');
       api.get<ThreadMessage[]>(`/threads/${params.threadId}/messages`)
         .then((history) => {
+          if (!active) return;
           setMessages(history);
           setNotice('');
-          return api.post(`/threads/${params.threadId}/resumed`);
+          void api.post(`/threads/${params.threadId}/resumed`).catch(() => undefined);
         })
-        .catch(() => setNotice('之前的对话暂时没有加载出来'));
-      return;
+        .catch(() => { if (active) setNotice('之前的对话暂时没有加载出来'); });
+      return () => { active = false; };
     }
     if (params.sourceMomentId) {
       setMode('chat');
+      setThreadId(null);
       setSourceMomentId(params.sourceMomentId);
-      if (params.content) setDraft(params.content);
+      setMessages([]);
+      setNotice('');
+      setDraft(params.content ?? '');
     }
   }, [params.content, params.sourceMomentId, params.threadId]);
   /* eslint-enable react-hooks/set-state-in-effect */
@@ -71,17 +81,22 @@ export default function HollowScreen() {
     const content = draft.trim();
     if (!content || sending) return;
     let optimisticId: string | null = null;
+    const submittedVersion = draftVersion.current;
     setSending(true);
     setNotice(mode === 'capture' ? '正在保存…' : '正在听你说…');
     try {
       if (mode === 'capture') {
+        if (!captureKey.current || captureKey.current.content !== content) {
+          captureKey.current = { content, key: `capture-${Date.now()}-${Math.random().toString(36).slice(2)}` };
+        }
         await api.post<Moment>('/moments', {
           content,
           mode: 'capture',
           input_type: 'text',
           memory_enabled: true,
-        });
-        setDraft('');
+        }, captureKey.current.key);
+        captureKey.current = null;
+        if (draftVersion.current === submittedVersion) setDraft('');
         showSaved();
       } else {
         optimisticId = `local-${Date.now()}`;
@@ -93,12 +108,18 @@ export default function HollowScreen() {
         };
         setMessages((current) => [...current, optimistic]);
         setDraft('');
-        const response = await api.post<ChatResponse>('/chat', {
+        const body = {
           content,
           thread_id: threadId,
           source_moment_id: threadId ? null : sourceMomentId,
-          input_type: 'text',
-        });
+          input_type: 'text' as const,
+        };
+        const signature = JSON.stringify(body);
+        if (!chatKey.current || chatKey.current.signature !== signature) {
+          chatKey.current = { signature, key: `chat-${Date.now()}-${Math.random().toString(36).slice(2)}` };
+        }
+        const response = await api.post<ChatResponse>('/chat', body, chatKey.current.key);
+        chatKey.current = null;
         setThreadId(response.thread_id);
         setSourceMomentId(null);
         setMessages((current) => [...current, response.message]);
@@ -108,7 +129,7 @@ export default function HollowScreen() {
       if (optimisticId) {
         setMessages((current) => current.filter((message) => message.id !== optimisticId));
       }
-      setDraft(content);
+      if (draftVersion.current === submittedVersion) setDraft(content);
       setNotice(error instanceof ApiError ? error.message : '刚刚没接住，再说一次？');
     } finally {
       setSending(false);
@@ -122,7 +143,7 @@ export default function HollowScreen() {
         <View style={styles.composer}>
           <TextInput
             value={draft}
-            onChangeText={setDraft}
+            onChangeText={(value) => { draftVersion.current += 1; setDraft(value); }}
             placeholder="写点什么…"
             placeholderTextColor={colors.muted}
             multiline

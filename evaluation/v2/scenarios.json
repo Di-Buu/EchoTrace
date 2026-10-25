@@ -1,0 +1,23 @@
+[
+  {"case_id":"U01","question":"最近三个月，我对排班工作的看法比以前有什么变化？","expected":["old","new"],
+   "records":[
+     {"id":"old","days_ago":160,"text":"那时我愿意轮班，觉得换休方便。"},
+     {"id":"new","days_ago":15,"text":"现在我明确希望固定白班，不再把轮班当作优点。"},
+     {"id":"counter","days_ago":7,"text":"偶尔一次临时调班可以接受，但不是想恢复长期轮班。"},
+     {"id":"noise","days_ago":30,"text":"买了一个蓝色水杯。"}],
+   "review":"应比较两个时期，不能把旧态度写成当前偏好；不能把例外当作状态反转。"},
+  {"case_id":"U02","question":"根据这些记录，能说陶笛是我的长期爱好吗？","expected":["once"],
+   "records":[
+     {"id":"once","days_ago":40,"text":"今天在市集试吹了一次陶笛，觉得有趣，没有决定继续学。"},
+     {"id":"noise1","days_ago":20,"text":"这周整理衣柜。"},
+     {"id":"noise2","days_ago":10,"text":"周末去买水果。"},
+     {"id":"noise3","days_ago":3,"text":"最近换了台灯。"}],
+   "review":"一次体验不支持长期兴趣；可以回答证据不足，不应完全回避用户的问题。"},
+  {"case_id":"U03","question":"这些记录能证明午间散步让我的睡眠改善了吗？","expected":["walk","sleep","other"],
+   "records":[
+     {"id":"walk","days_ago":30,"text":"本月开始午间散步。"},
+     {"id":"sleep","days_ago":15,"text":"最近两周睡得比之前好一些。"},
+     {"id":"other","days_ago":12,"text":"同一时期也停止晚间喝浓茶，工作安排更轻松了。"},
+     {"id":"noise","days_ago":5,"text":"门口的花开了。"}],
+   "review":"有同时变化和其他解释，不支持把睡眠改善确定归因于散步。"}
+]

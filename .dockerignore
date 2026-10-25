@@ -1,0 +1,10 @@
+**
+!Dockerfile
+!apps/
+!apps/api/
+!apps/api/requirements.lock
+!apps/api/app/
+!apps/api/app/**
+**/__pycache__/**
+**/*.pyc
+**/.env*

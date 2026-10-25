@@ -1,12 +1,13 @@
+import logging
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Header, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from app.dependencies import CurrentUser, Database
 from app.domain import InsightQuery
 from app.service_dependencies import Insights
-from app.services.insights import InsufficientEvidenceError
+from app.services.tasks import submit
 from app.services.telemetry import Telemetry
 
 router = APIRouter(prefix="/insights", tags=["insights"])
@@ -54,37 +55,34 @@ async def get_insight(insight_id: UUID, user: CurrentUser, db: Database) -> dict
     return rows[0]
 
 
-@router.post("/query")
+@router.post("/query", status_code=202)
 async def query_insight(
     payload: InsightQuery,
+    request: Request,
     user: CurrentUser,
     db: Database,
     engine: Insights,
+    idempotency_key: str | None = Header(default=None),
 ) -> dict:
-    try:
-        result = await engine.answer(user, payload.question)
-        evidence_count = len(result.get("evidence", []))
-        await Telemetry(db, user.access_token, user.id).product_event(
-            event_name="long_term_query",
-            properties={
-                "route_type": "grounded",
-                "has_answer": True,
-                "evidence_count": evidence_count,
-            },
-        )
-        return result
-    except InsufficientEvidenceError as exc:
-        await Telemetry(db, user.access_token, user.id).product_event(
-            event_name="long_term_query",
-            properties={"route_type": "insufficient", "has_answer": False, "evidence_count": 0},
-        )
-        raise HTTPException(422, "这次没能找到足够可靠的线索。") from exc
+    task = await submit(db, user, "analysis", payload.model_dump(mode="json"), idempotency_key)
+    logging.getLogger("echotrace.tasks").info(
+        "analysis_accepted request_id=%s task_id=%s", getattr(request.state, "request_id", "unknown"), task["id"]
+    )
+    return task
 
 
-@router.post("/refresh")
-async def refresh_automatic(user: CurrentUser, engine: Insights) -> dict:
-    result = await engine.maybe_generate_automatic(user)
-    return {"insight": result}
+@router.post("/refresh", status_code=202)
+async def refresh_automatic(user: CurrentUser, db: Database) -> dict:
+    task = await submit(
+        db,
+        user,
+        "analysis",
+        {
+            "question": "根据现有记录，是否有值得回看的变化或重复？证据不足时明确说明。",
+        },
+        None,
+    )
+    return {"insight": None, "task": task}
 
 
 @router.post("/{insight_id}/feedback")

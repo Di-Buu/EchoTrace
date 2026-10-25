@@ -29,7 +29,7 @@ EchoTrace 的设计目标是不以一条情绪记录定义一个人。原始记�
 
 ## 当前版本
 
-- **本地质量版**：文字输入、Moment 与 Thread、Companion、长期记忆检索、每周回顾、AI 发现、主动提问和证据回溯已接入。深度洞察使用多角色分析与证据核验，生成需要一定时间；打开「AI 发现」时会检查已结束的周并在本地后台整理，已有内容仍可查看。目前不是独立定时任务，进程停止可能中断生成。
+- **本地质量版**：文字输入、Moment 与 Thread、Companion、长期记忆检索、每周回顾、AI 发现、主动提问和证据回溯已接入。深度洞察使用多角色分析与证据核验，生成需要一定时间；打开「AI 发现」时会检查已结束的周并在本地后台整理，已有内容仍可查看。当前在访问时检查并创建每周任务，不是独立定时调度；任务已持久保存，由独立 Worker 执行，进程重启后可恢复。
 - **[在线预览](https://echotrace-web.vercel.app/)**：较早部署的 Demo，便于浏览界面；它尚未同步本地质量版的全部更新。当前产品与 AI 效果以本地版本为准。
 - **后续方向**：语音转写、图片与文件输入，以及更适合持续使用的 Android 安装体验。
 
@@ -40,6 +40,8 @@ EchoTrace 的设计目标是不以一条情绪记录定义一个人。原始记�
 个人记录按 `user_id` 隔离。涉及过去经历、偏好或状态变化的回答需要关联当前用户的真实记录；原始 Moment 不会被摘要替代。
 
 ## 本地运行
+
+后端使用独立 Worker 处理索引和耗时分析。新代码需要配套应用新增迁移；提交深度分析后返回任务，客户端随后查看进度。当前线上 Demo 未同步这些更新。
 
 需要 Python 3.12、Node.js、Supabase 项目及百炼 API 凭据。先按 [`apps/api/.env.example`](apps/api/.env.example) 与 [`apps/mobile/.env.example`](apps/mobile/.env.example) 配置各自的 `.env`，并应用 [`supabase/migrations`](supabase/migrations) 中的数据库迁移。真实密钥不要提交到 Git。
 
@@ -52,7 +54,14 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload
 ```
 
-另开一个终端启动客户端：
+另开一个终端启动后台 Worker（只在服务端配置 Worker 密钥）：
+
+```powershell
+cd apps/api
+.\.venv\Scripts\python.exe -m app.worker
+```
+
+再开一个终端启动客户端：
 
 ```powershell
 cd apps/mobile
@@ -61,3 +70,13 @@ npx expo start
 ```
 
 项目主要目录：`apps/mobile`（客户端）、`apps/api`（API 与 AI 工作流）、`supabase`（数据库结构）。
+
+也可以用 Docker 启动后端 API 和 Worker，数据库与登录服务仍使用你配置的 Supabase：
+
+```powershell
+Copy-Item apps/api/.env.example deploy.env.local
+# 在 deploy.env.local 中填写自己的开发环境配置，然后运行：
+docker compose --env-file deploy.env.local up -d --build --wait
+```
+
+数据库迁移是独立步骤，不会随容器启动自动执行。请先备份已有数据库，按迁移版本增量应用；不要在已有数据的库里重跑初始化。前端只使用公开 API key，服务端密钥只配置给 Worker。

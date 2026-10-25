@@ -5,7 +5,7 @@ import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Screen } from '@/components/Screen';
 import { StateMessage } from '@/components/StateMessage';
-import { api } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
 import { colors, radii, spacing } from '@/lib/theme';
 import type { Memory } from '@/lib/types';
 import { supabase } from '@/lib/supabase';
@@ -16,7 +16,8 @@ const typeLabel: Record<string, string> = {
 };
 
 export default function MeScreen() {
-  const { session } = useAuth();
+  const { session, resetPersonalViews } = useAuth();
+  const [busy, setBusy] = useState(false);
   const [memories, setMemories] = useState<Memory[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -40,36 +41,50 @@ export default function MeScreen() {
   useFocusEffect(useCallback(() => { void load(); }, [load]));
 
   async function save(memory: Memory) {
-    if (!editText.trim()) return;
-    const next = await api.patch<Memory>(`/memories/${memory.id}`, { content: editText.trim() });
-    setMemories((current) => current.map((item) => item.id === memory.id ? { ...item, ...next } : item));
-    setEditingId(null);
+    if (!editText.trim() || busy) return;
+    setBusy(true);
+    try {
+      const next = await api.patch<Memory>(`/memories/${memory.id}`, { content: editText.trim() });
+      setMemories((current) => current.map((item) => item.id === memory.id ? { ...item, ...next } : item));
+      setEditingId(null);
+      setDataMessage('记忆已更新。');
+    } catch (error) {
+      setDataMessage(error instanceof ApiError ? error.message : '记忆暂时无法保存，请稍后重试。');
+    } finally { setBusy(false); }
   }
 
   async function remove(memory: Memory) {
+    if (busy) return;
     if (confirmDelete !== memory.id) {
       setConfirmDelete(memory.id);
       return;
     }
-    await api.delete(`/memories/${memory.id}`);
-    setMemories((current) => current.filter((item) => item.id !== memory.id));
-    setConfirmDelete(null);
+    setBusy(true);
+    try {
+      await api.delete(`/memories/${memory.id}`);
+      setMemories((current) => current.filter((item) => item.id !== memory.id));
+      setConfirmDelete(null);
+      setDataMessage('记忆已删除。');
+    } catch (error) {
+      setDataMessage(error instanceof ApiError ? error.message : '记忆暂时无法删除，请稍后重试。');
+    } finally { setBusy(false); }
   }
 
   async function clearPersonalData() {
+    if (busy) return;
     if (!confirmClear) {
       setConfirmClear(true);
       setDataMessage('这会删除全部时刻、对话、记忆和洞察。请再次点击确认。');
       return;
     }
+    setBusy(true);
     try {
       await api.delete('/account/data');
-      setMemories([]);
-      setConfirmClear(false);
-      setDataMessage('个人数据已清空，账号仍然保留。');
+      resetPersonalViews();
+      router.replace('/(tabs)');
     } catch {
       setDataMessage('暂时无法清空数据，请稍后重试。');
-    }
+    } finally { setBusy(false); }
   }
 
   return (
@@ -113,8 +128,8 @@ export default function MeScreen() {
 
       <Text style={styles.sectionTitle}>隐私与数据</Text>
       <Text style={styles.sectionHint}>你可以清空全部时刻、对话、索引、周报和洞察，登录账号会继续保留。</Text>
-      <Pressable onPress={clearPersonalData} style={styles.clearData}>
-        <Text style={styles.delete}>{confirmClear ? '再次点击确认清空' : '清空个人数据'}</Text>
+      <Pressable onPress={clearPersonalData} disabled={busy} style={styles.clearData}>
+        <Text style={styles.delete}>{busy ? '正在处理…' : confirmClear ? '再次点击确认清空' : '清空个人数据'}</Text>
       </Pressable>
       {dataMessage ? <Text style={styles.dataMessage}>{dataMessage}</Text> : null}
 

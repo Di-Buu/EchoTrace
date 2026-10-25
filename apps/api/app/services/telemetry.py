@@ -1,7 +1,10 @@
+import logging
 from typing import Any
 from uuid import UUID, uuid4
 
 from app.clients.supabase import SupabaseClient
+
+logger = logging.getLogger("echotrace.telemetry")
 
 
 class Telemetry:
@@ -52,9 +55,9 @@ class Telemetry:
         }
         try:
             await self.db.insert("ai_runs", self.access_token, payload)
-        except Exception:
+        except Exception as exc:
             # Observability must never turn a conservative AI failure into data loss.
-            return
+            logger.warning("telemetry_failed kind=ai_run error=%s", type(exc).__name__)
 
     async def product_event(
         self,
@@ -75,6 +78,6 @@ class Telemetry:
         }
         try:
             await self.db.insert("product_events", self.access_token, payload)
-        except Exception:
+        except Exception as exc:
             # Analytics must not prevent a user from saving or receiving a response.
-            return
+            logger.warning("telemetry_failed kind=product_event error=%s", type(exc).__name__)

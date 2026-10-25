@@ -1,13 +1,11 @@
 from datetime import UTC, datetime
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, Header, HTTPException
 
-from app.config import get_settings
 from app.dependencies import CurrentUser, Database
 from app.domain import ThreadMessageCreate
 from app.service_dependencies import Companion
-from app.services.moment_index import run_moment_index_job
 from app.services.telemetry import Telemetry
 
 router = APIRouter(tags=["chat"])
@@ -18,16 +16,11 @@ async def chat(
     payload: ThreadMessageCreate,
     user: CurrentUser,
     companion: Companion,
-    background_tasks: BackgroundTasks,
+    idempotency_key: str | None = Header(default=None),
 ) -> dict:
     try:
-        result = await companion.reply(user, payload)
-        background_tasks.add_task(
-            run_moment_index_job,
-            user,
-            result.moment_id,
-            get_settings(),
-        )
+        result = await companion.reply(user, payload, idempotency_key)
+        # Moment INSERT trigger already created the durable index job.
         return result.model_dump(mode="json")
     except LookupError as exc:
         raise HTTPException(404, str(exc)) from exc

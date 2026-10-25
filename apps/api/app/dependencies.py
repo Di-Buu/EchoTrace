@@ -3,7 +3,7 @@ from typing import Annotated
 
 from fastapi import Depends, Header, HTTPException, status
 
-from app.clients.supabase import SupabaseClient
+from app.clients.supabase import SupabaseClient, SupabaseError
 from app.config import Settings, get_settings
 from app.domain import UserContext
 
@@ -26,8 +26,12 @@ async def get_current_user(
     try:
         profile = await db.resolve_user(access_token)
         return UserContext(id=profile["id"], email=profile.get("email"), access_token=access_token)
+    except SupabaseError as exc:
+        if exc.status_code in {401, 403}:
+            raise HTTPException(status_code=401, detail="登录状态已失效") from exc
+        raise HTTPException(status_code=503, detail="认证服务暂时不可用") from exc
     except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="登录状态已失效") from exc
+        raise HTTPException(status_code=503, detail="认证服务暂时不可用") from exc
 
 
 CurrentUser = Annotated[UserContext, Depends(get_current_user)]

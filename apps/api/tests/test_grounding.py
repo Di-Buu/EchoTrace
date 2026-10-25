@@ -22,4 +22,7 @@ def test_compact_evidence_keeps_source_and_time() -> None:
     result = InsightEngine._compact_evidence(evidence)
     assert result[0]["moment_id"] == str(moment_id)
     assert result[0]["moment_content"] == "我决定这个月开始学摄影"
-    assert result[0]["occurred_at"].startswith("2026-01-02")
+    assert result[0]["recorded_at"].startswith("2026-01-02")
+    assert "occurred_at" not in result[0]  # Do not present the record timestamp as an event date.
+    assert result[0]["event_at"] is None
+    assert "事件时间未经确认" in result[0]["event_time_note"]

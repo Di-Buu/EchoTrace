@@ -23,6 +23,7 @@ class AiResponseError(RuntimeError):
 class BailianClient:
     def __init__(self, settings: Settings):
         self.settings = settings
+        self.budget = None
 
     async def embedding(self, text: str) -> tuple[list[float], dict[str, Any]]:
         self._require("embedding_model")
@@ -126,7 +127,14 @@ class BailianClient:
         data = await self._post_json("/chat/completions", payload)
         return self._message_content(data), self._metadata(data, started)
 
-    async def _post_json(
+    async def _post_json(self, path: str, payload: dict[str, Any], *, timeout_seconds: float | None = None):
+        if self.budget is None:
+            return await self._send_json(path, payload, timeout_seconds=timeout_seconds)
+        async with self.budget.semaphore:
+            self.budget.check_payload(payload)
+            return await self._send_json(path, payload, timeout_seconds=timeout_seconds)
+
+    async def _send_json(
         self,
         path: str,
         payload: dict[str, Any],
@@ -141,8 +149,13 @@ class BailianClient:
         }
         response: httpx.Response | None = None
         timeout = timeout_seconds or self.settings.ai_timeout_seconds
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        # Domestic model endpoints must not depend on a developer's proxy process.
+        async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
             for attempt in range(3):
+                if self.budget is not None:
+                    self.budget.charge_call()
+                    if hasattr(self.budget, "persist"):
+                        await self.budget.persist()
                 try:
                     response = await client.post(
                         f"{self.settings.dashscope_base_url.rstrip('/')}{path}",
@@ -170,6 +183,14 @@ class BailianClient:
         if response.is_error:
             raise AiResponseError(f"百炼调用失败 {response.status_code}: {response.text[:800]}")
         result = response.json()
+        if self.budget is not None:
+            usage = result.get("usage") or {}
+            try:
+                self.budget.charge_tokens(int(usage.get("total_tokens", 0)))
+            finally:
+                # Keep reported usage even when this response crosses the allowance.
+                if hasattr(self.budget, "persist"):
+                    await self.budget.persist()
         result["_client_retry_count"] = response.extensions.get("echotrace_retry_count", 0)
         return result
 
@@ -207,9 +228,7 @@ class BailianClient:
                         f"模型没有返回有效 JSON (length={len(cleaned)}, complete_object=true)"
                     ) from nested_exc
             else:
-                raise AiResponseError(
-                    f"模型没有返回有效 JSON (length={len(cleaned)}, complete_object=false)"
-                ) from exc
+                raise AiResponseError(f"模型没有返回有效 JSON (length={len(cleaned)}, complete_object=false)") from exc
         if not isinstance(value, dict):
             raise AiResponseError("模型 JSON 顶层必须是对象")
         return value

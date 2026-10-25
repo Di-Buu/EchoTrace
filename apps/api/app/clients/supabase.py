@@ -6,15 +6,20 @@ from app.config import Settings
 
 
 class SupabaseError(RuntimeError):
-    pass
+    def __init__(self, message: str, status_code: int | None = None):
+        super().__init__(message)
+        self.status_code = status_code
 
 
 class SupabaseClient:
     """Small PostgREST adapter that always executes under the user's JWT and RLS."""
 
+    atomic_insights = True
+
     def __init__(self, settings: Settings):
         self.settings = settings
-        self.http = httpx.AsyncClient()
+        # Keep local Auth/Data API reachable when a system proxy is stopped.
+        self.http = httpx.AsyncClient(trust_env=False)
 
     async def aclose(self) -> None:
         await self.http.aclose()
@@ -136,7 +141,7 @@ class SupabaseClient:
     def _json_or_raise(response: httpx.Response) -> Any:
         if response.is_error:
             detail = response.text[:1_000]
-            raise SupabaseError(f"Supabase {response.status_code}: {detail}")
+            raise SupabaseError(f"Supabase {response.status_code}: {detail}", status_code=response.status_code)
         if not response.content:
             return []
         return response.json()

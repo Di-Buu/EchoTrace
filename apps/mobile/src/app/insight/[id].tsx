@@ -12,6 +12,8 @@ export default function InsightDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [insight, setInsight] = useState<Insight | null>(null);
   const [loading, setLoading] = useState(true);
+  const [notice, setNotice] = useState('');
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -25,9 +27,14 @@ export default function InsightDetailScreen() {
   }, [id]);
 
   async function feedback(rating: 'match' | 'partial' | 'mismatch') {
-    if (!insight) return;
-    const next = await api.post<Insight>(`/insights/${insight.id}/feedback`, { rating });
-    setInsight((current) => current ? { ...current, feedback: next.feedback } : current);
+    if (!insight || saving) return;
+    setSaving(true);
+    try {
+      const next = await api.post<Insight>(`/insights/${insight.id}/feedback`, { rating });
+      setInsight((current) => current ? { ...current, feedback: next.feedback } : current);
+      setNotice('反馈已保存。');
+    } catch { setNotice('反馈没有保存成功，请稍后重试。'); }
+    finally { setSaving(false); }
   }
 
   if (loading) return <Screen><StateMessage text="正在打开证据…" loading /></Screen>;
@@ -79,9 +86,10 @@ export default function InsightDetailScreen() {
       ))}
 
       <Text style={styles.sectionTitle}>这个观察符合你吗？</Text>
+      {notice ? <Text accessibilityRole="alert" style={styles.muted}>{notice}</Text> : null}
       <View style={styles.feedbackRow}>
         {([['match', '符合'], ['partial', '部分符合'], ['mismatch', '不符合']] as const).map(([value, label]) => (
-          <Pressable key={value} onPress={() => feedback(value)} style={[styles.feedback, insight.feedback === value && styles.feedbackActive]}>
+          <Pressable key={value} disabled={saving} onPress={() => feedback(value)} style={[styles.feedback, insight.feedback === value && styles.feedbackActive]}>
             <Text style={[styles.feedbackText, insight.feedback === value && styles.feedbackTextActive]}>{label}</Text>
           </Pressable>
         ))}

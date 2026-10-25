@@ -1,0 +1,35 @@
+# Local isolated Supabase only. The deterministic provider proves wiring, not AI quality.
+services:
+  model:
+    image: ${ECHOTRACE_IMAGE:-echotrace:local}
+    command: [python, /mock_provider.py]
+    volumes:
+      - ./tools/mock_provider.py:/mock_provider.py:ro
+    read_only: true
+    environment:
+      MOCK_DELAY_SECONDS: '2'
+    ports:
+      - '127.0.0.1:8089:8089'
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8089/',timeout=2)"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+  api:
+    environment:
+      DASHSCOPE_BASE_URL: http://model:8089/v1
+      DASHSCOPE_API_KEY: mock
+      CHAT_MODEL: mock
+      EMBEDDING_MODEL: mock
+    depends_on:
+      model:
+        condition: service_healthy
+  worker:
+    environment:
+      DASHSCOPE_BASE_URL: http://model:8089/v1
+      DASHSCOPE_API_KEY: mock
+      CHAT_MODEL: mock
+      EMBEDDING_MODEL: mock
+    depends_on:
+      model:
+        condition: service_healthy

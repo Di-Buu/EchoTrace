@@ -17,6 +17,9 @@ dev = [
   "pytest-asyncio>=1.1,<2",
   "respx>=0.22,<1",
   "ruff>=0.12,<1",
+  "psycopg[binary]==3.2.10",
+  "pglast==7.21",
+  "PyYAML==6.0.3",
 ]
 
 [tool.pytest.ini_options]

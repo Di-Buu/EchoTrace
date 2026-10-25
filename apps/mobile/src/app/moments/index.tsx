@@ -1,5 +1,5 @@
 import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { Pressable, SectionList, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -22,11 +22,21 @@ export default function MomentsScreen() {
   const [items, setItems] = useState<Moment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [more, setMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [moreError, setMoreError] = useState('');
+  const generation = useRef(0);
+  const loadingPage = useRef(false);
 
   const load = useCallback(async () => {
+    const current = ++generation.current;
     setLoading(true);
     try {
-      setItems(await api.get<Moment[]>('/moments'));
+      const rows = await api.get<Moment[]>('/moments?limit=50');
+      if (current !== generation.current) return;
+      setItems(rows);
+      setMore(rows.length === 50);
+      setMoreError('');
       setError('');
     } catch {
       setError('时刻暂时没有加载出来');
@@ -34,6 +44,24 @@ export default function MomentsScreen() {
       setLoading(false);
     }
   }, []);
+
+  async function loadMore() {
+    if (!more || loadingPage.current || loading) return;
+    const last = items.at(-1);
+    if (!last) return;
+    const current = generation.current;
+    loadingPage.current = true;
+    setLoadingMore(true);
+    try {
+      const query = new URLSearchParams({ limit: '50', before_at: last.created_at, before_id: last.id });
+      const rows = await api.get<Moment[]>(`/moments?${query}`);
+      if (current !== generation.current) return;
+      setItems((old) => [...new Map([...old, ...rows].map((item) => [item.id, item])).values()]);
+      setMore(rows.length === 50);
+      setMoreError('');
+    } catch { if (current === generation.current) setMoreError('更早的时刻没有加载出来，请重试。'); }
+    finally { loadingPage.current = false; setLoadingMore(false); }
+  }
 
   useFocusEffect(useCallback(() => { void load(); }, [load]));
 
@@ -55,6 +83,14 @@ export default function MomentsScreen() {
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.list}
           stickySectionHeadersEnabled={false}
+          ListFooterComponent={more ? (
+            <View style={{ paddingVertical: 20, alignItems: 'center' }}>
+              {moreError ? <Text style={{ color: colors.danger }}>{moreError}</Text> : null}
+              <Pressable onPress={loadMore} disabled={loadingMore} style={{ padding: 16 }}>
+                <Text style={{ color: colors.accent }}>{loadingMore ? '正在翻看…' : '加载更早的时刻'}</Text>
+              </Pressable>
+            </View>
+          ) : <Text style={{ textAlign: 'center', color: colors.muted, padding: 20 }}>已经翻到最早的时刻了</Text>}
           renderSectionHeader={({ section }) => <Text style={styles.day}>{section.title}</Text>}
           renderItem={({ item }) => (
             <Pressable onPress={() => router.push({ pathname: '/moments/[id]', params: { id: item.id } })} style={styles.row}>

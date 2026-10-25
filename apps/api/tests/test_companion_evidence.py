@@ -13,6 +13,19 @@ THREAD_ID = UUID("44444444-4444-4444-4444-444444444444")
 
 
 class FakeDb:
+    async def rpc(self, function, token, payload):
+        if function == "chat_prepare":
+            return [{"thread_id": str(THREAD_ID), "moment_id": str(CURRENT_ID),
+                     "lease": str(USER_ID), "new_thread": True}]
+        if function == "evidence_snapshot":
+            return [{"id": mid, "revision": 1} for mid in payload["p_ids"]]
+        if function == "chat_control":
+            return [{"thread_id": str(THREAD_ID), "moment_id": str(CURRENT_ID),
+                     "message": {"id": str(USER_ID), "thread_id": str(THREAD_ID), "role": "assistant",
+                                 "content": payload["p_data"]["content"], "created_at": datetime.now(UTC).isoformat()},
+                     "evidence_moment_ids": payload["p_data"]["evidence_ids"],
+                     "used_long_term_memory": bool(payload["p_data"]["evidence_ids"])}]
+        raise AssertionError(function)
     async def insert(self, table, _token, payload):
         if table == "thread_messages":
             return [{
@@ -69,13 +82,9 @@ async def test_companion_excludes_current_question_from_past_evidence(monkeypatc
         items.append(evidence(PAST_ID, "我喜欢爵士乐。"))
     service = CompanionService(FakeDb(), ai, FakeRetriever(items))
 
-    async def ensure_thread(_user, _payload):
-        return THREAD_ID, CURRENT_ID, True
-
     async def skip_summary(_user, _thread_id, _trace_id):
         return None
 
-    monkeypatch.setattr(service, "_ensure_thread", ensure_thread)
     monkeypatch.setattr(service, "_maybe_update_summary", skip_summary)
     result = await service.reply(
         UserContext(id=USER_ID, access_token="token"),

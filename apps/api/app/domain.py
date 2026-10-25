@@ -24,6 +24,15 @@ class MomentCreate(ApiModel):
     mode: CaptureMode = "capture"
     input_type: Literal["text"] = "text"
     memory_enabled: bool = True
+    event_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def event_timezone(self):
+        if not self.content.strip():
+            raise ValueError("内容不能全为空白")
+        if self.event_at and self.event_at.tzinfo is None:
+            raise ValueError("事件时间需要包含时区")
+        return self
 
 
 class Moment(ApiModel):
@@ -42,6 +51,12 @@ class ThreadMessageCreate(ApiModel):
     thread_id: UUID | None = None
     source_moment_id: UUID | None = None
     input_type: Literal["text"] = "text"
+
+    @model_validator(mode="after")
+    def nonempty(self):
+        if not self.content.strip():
+            raise ValueError("内容不能全为空白")
+        return self
 
 
 class ThreadMessage(ApiModel):
@@ -100,6 +115,10 @@ class WeeklyDigestOutput(ApiModel):
 
 
 class RetrievedEvidence(ApiModel):
+    recorded_at: datetime | None = None
+    event_at: datetime | None = None
+    event_time_source: Literal["unknown", "user_confirmed"] = "unknown"
+    revision: int | None = None
     memory_id: UUID | None = None
     memory_content: str
     memory_type: str

@@ -41,7 +41,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     let code: string | undefined;
     try {
       const payload = await response.json();
-      message = payload.detail ?? message;
+      message = typeof payload.detail === 'string' ? payload.detail : message;
       code = payload.code;
     } catch {
       // Keep the safe user-facing fallback.
@@ -53,8 +53,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   get: <T>(path: string) => request<T>(path),
-  post: <T>(path: string, body?: unknown) =>
-    request<T>(path, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) }),
+  post: <T>(path: string, body?: unknown, key?: string) =>
+    request<T>(path, { method: 'POST', headers: key ? { 'Idempotency-Key': key } : {},
+      body: body === undefined ? undefined : JSON.stringify(body) }),
   patch: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: 'PATCH', body: body === undefined ? undefined : JSON.stringify(body) }),
   delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),

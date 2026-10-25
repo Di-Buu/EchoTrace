@@ -7,7 +7,7 @@ import { colors } from '@/lib/theme';
 import { AuthProvider, useAuth } from '@/providers/AuthProvider';
 
 function RootNavigator() {
-  const { session, loading } = useAuth();
+  const { session, loading, dataVersion } = useAuth();
   if (loading) {
     return (
       <View style={styles.loading}>
@@ -16,7 +16,7 @@ function RootNavigator() {
     );
   }
   return (
-    <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }}>
+    <Stack key={`${session?.user.id ?? 'signed-out'}:${dataVersion}`} screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }}>
       <Stack.Protected guard={!session}>
         <Stack.Screen name="(auth)" />
       </Stack.Protected>

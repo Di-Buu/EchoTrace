@@ -152,6 +152,8 @@ class WeeklyReportService:
             return
         report = reports[0]
         moments = await self._week_moments(user, report["week_start"], report["week_end"])
+        self._week_versions = {str(item["id"]): item.get("revision", 1) for item in moments}
+        self._index_cards = []
         version = hashlib.sha256(
             "|".join(f"{item['id']}:{item['updated_at']}" for item in moments).encode()
         ).hexdigest()[:20]
@@ -176,32 +178,23 @@ class WeeklyReportService:
             if single_entry
             else await self._digest(user, moments)
         )
-        await self.db.delete(
-            "weekly_summary_cards",
-            user.access_token,
-            params={"report_id": f"eq.{report_id}", "user_id": f"eq.{user.id}"},
-        )
         if cards and not single_entry:
             embeddings = await asyncio.gather(*(self.ai.embedding(card["summary"]) for card in cards))
-            await self.db.insert(
-                "weekly_summary_cards",
-                user.access_token,
-                [
-                    {
-                        "report_id": str(report_id),
-                        "user_id": str(user.id),
-                        "topic": card["topic"],
-                        "summary": card["summary"],
-                        "source_moment_ids": card["source_moment_ids"],
-                        "time_start": card["time_start"],
-                        "time_end": card["time_end"],
-                        "embedding": vector,
-                        "embedding_model": self.ai.settings.embedding_model,
-                        "embedding_dimension": len(vector),
-                    }
-                    for card, (vector, _) in zip(cards, embeddings, strict=True)
-                ],
-            )
+            self._index_cards = [
+                {
+                    "report_id": str(report_id),
+                    "user_id": str(user.id),
+                    "topic": card["topic"],
+                    "summary": card["summary"],
+                    "source_moment_ids": card["source_moment_ids"],
+                    "time_start": card["time_start"],
+                    "time_end": card["time_end"],
+                    "embedding": vector,
+                    "embedding_model": self.ai.settings.embedding_model,
+                    "embedding_dimension": len(vector),
+                }
+                for card, (vector, _) in zip(cards, embeddings, strict=True)
+            ]
         total = await self.db.select(
             "moments",
             user.access_token,
@@ -220,9 +213,7 @@ class WeeklyReportService:
             return
 
         query = "本周 " + "、".join(dict.fromkeys(card["topic"] for card in cards))[:180] + " 过去的变化"
-        historical = await self.retriever.search(
-            user, query, limit=14, temporal_coverage=True, trace_id=str(uuid4())
-        )
+        historical = await self.retriever.search(user, query, limit=14, temporal_coverage=True, trace_id=str(uuid4()))
         current = [
             RetrievedEvidence(
                 memory_id=None,
@@ -258,7 +249,7 @@ class WeeklyReportService:
                 "moments",
                 user.access_token,
                 params={
-                    "select": "id,content,created_at,updated_at",
+                    "select": "id,content,created_at,updated_at,revision",
                     "user_id": f"eq.{user.id}",
                     "memory_enabled": "eq.true",
                     "created_at": f"gte.{week_timestamp(date.fromisoformat(start))}",
@@ -338,10 +329,7 @@ class WeeklyReportService:
                     continue
                 ids = sorted(source_ids | counter_ids)
                 covered.update(ids)
-                timestamps = [
-                    datetime.fromisoformat(by_id[item]["created_at"].replace("Z", "+00:00"))
-                    for item in ids
-                ]
+                timestamps = [datetime.fromisoformat(by_id[item]["created_at"].replace("Z", "+00:00")) for item in ids]
                 cards.append(
                     {
                         "topic": card.topic,
@@ -385,6 +373,20 @@ class WeeklyReportService:
         *,
         insight_id: str | None = None,
     ) -> None:
+        if hasattr(self.db, "control"):
+            await self.db.rpc(
+                "finish_weekly",
+                user.access_token,
+                {
+                    "status": status,
+                    "digest": cards,
+                    "input_version": version,
+                    "insight_id": insight_id,
+                    "versions": getattr(self, "_week_versions", {}),
+                    "index_cards": getattr(self, "_index_cards", []),
+                },
+            )
+            return
         await self.db.update(
             "weekly_reports",
             user.access_token,

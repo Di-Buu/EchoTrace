@@ -1,12 +1,18 @@
+import asyncio
 import json
+import logging
 from uuid import UUID, uuid4
 
+from fastapi import HTTPException
+
 from app.clients.ai import BailianClient
-from app.clients.supabase import SupabaseClient
-from app.domain import ChatResponse, ThreadMessage, ThreadMessageCreate, UserContext
+from app.clients.supabase import SupabaseClient, SupabaseError
+from app.domain import ChatResponse, ThreadMessageCreate, UserContext
 from app.prompts import COMPANION_SYSTEM, COMPANION_VERSION
 from app.services.retrieval import PersonalMemoryRetriever
 from app.services.telemetry import Telemetry
+
+logger = logging.getLogger("echotrace.chat")
 
 LONG_TERM_CUES = (
     "以前",
@@ -31,37 +37,48 @@ class CompanionService:
         self.ai = ai
         self.retriever = retriever
 
-    async def reply(self, user: UserContext, payload: ThreadMessageCreate) -> ChatResponse:
+    async def _turn_rpc(self, user, function, payload):
+        try:
+            return await self.db.rpc(function, user.access_token, payload)
+        except SupabaseError as exc:
+            message = str(exc)
+            if "IDEMPOTENCY_CONFLICT" in message:
+                raise HTTPException(409, "同一个发送标识不能用于不同内容") from exc
+            if "CHAT_BUSY" in message:
+                raise HTTPException(409, "这条消息仍在处理，请稍候再试") from exc
+            if any(code in message for code in ("CHAT_LEASE_LOST", "EVIDENCE_CHANGED")):
+                raise HTTPException(409, "记录或对话已变化，请刷新后重新发送") from exc
+            if "SOURCE_UNAVAILABLE" in message:
+                raise HTTPException(404, "原记录或对话已被修改或删除，请重新打开") from exc
+            raise
+
+    async def reply(self, user: UserContext, payload: ThreadMessageCreate, key: str | None = None) -> ChatResponse:
+        key = key or str(uuid4())
+        if not 1 <= len(key) <= 128:
+            raise HTTPException(422, "发送标识长度应为 1–128")
+        prepared = (await self._turn_rpc(user, "chat_prepare", {
+            "p_key": key, "p_payload": payload.model_dump(mode="json"),
+        }))[0]
+        if "cached" in prepared:
+            return ChatResponse.model_validate(prepared["cached"])
+        try:
+            return await self._reply_prepared(user, payload, key, prepared)
+        except BaseException:
+            try:
+                await asyncio.shield(self._turn_rpc(user, "chat_control", {
+                    "p_key": key, "p_lease": prepared["lease"], "p_action": "fail", "p_data": {},
+                }))
+            except Exception:
+                logger.warning("chat_release_failed; lease will expire")
+            raise
+
+    async def _reply_prepared(self, user, payload, key, prepared) -> ChatResponse:
         trace_id = str(uuid4())
-        thread_id, source_moment_id, reuse_source = await self._ensure_thread(user, payload)
+        thread_id = UUID(prepared["thread_id"])
+        moment_id = UUID(prepared["moment_id"])
+        source_moment_id = moment_id
+        reuse_source = prepared.get("new_thread", False)
         telemetry = Telemetry(self.db, user.access_token, user.id)
-        if reuse_source:
-            moment_id = source_moment_id
-        else:
-            moment = await self.db.insert(
-                "moments",
-                user.access_token,
-                {
-                    "user_id": str(user.id),
-                    "content": payload.content,
-                    "mode": "chat",
-                    "input_type": payload.input_type,
-                    "memory_enabled": True,
-                    "thread_id": str(thread_id),
-                },
-            )
-            moment_id = UUID(moment[0]["id"])
-        await self.db.insert(
-            "thread_messages",
-            user.access_token,
-            {
-                "user_id": str(user.id),
-                "thread_id": str(thread_id),
-                "role": "user",
-                "content": payload.content,
-                "input_type": payload.input_type,
-            },
-        )
         history = await self.db.select(
             "thread_messages",
             user.access_token,
@@ -107,6 +124,13 @@ class CompanionService:
         # The current turn is saved before retrieval, but it is not past evidence.
         evidence = [item for item in retrieved if item.moment_id != moment_id][:6]
         evidence_ids = list(dict.fromkeys(item.moment_id for item in evidence))
+        snapshots = (
+            await self.db.rpc("evidence_snapshot", user.access_token, {"p_ids": [str(x) for x in evidence_ids]})
+            if evidence_ids else []
+        )
+        if len(snapshots) != len(evidence_ids):
+            raise HTTPException(409, "历史记录已变化，请稍后重试")
+        versions = {str(row["id"]): row["revision"] for row in snapshots}
         context = {
             "thread_summary": summary,
             "personal_evidence": [item.model_dump(mode="json") for item in evidence],
@@ -115,19 +139,14 @@ class CompanionService:
         messages = [{"role": "user", "content": f"可用上下文：{json.dumps(context, ensure_ascii=False)}"}]
         messages.extend({"role": item["role"], "content": item["content"]} for item in history)
         text, metadata = await self.ai.chat(system=COMPANION_SYSTEM, messages=messages)
-        inserted = await self.db.insert(
-            "thread_messages",
-            user.access_token,
-            {
-                "user_id": str(user.id),
-                "thread_id": str(thread_id),
-                "role": "assistant",
-                "content": text,
-                "input_type": "system",
-                "evidence_moment_ids": [str(item) for item in evidence_ids],
-            },
-        )
-        await self._maybe_update_summary(user, thread_id, trace_id)
+        result = (await self._turn_rpc(user, "chat_control", {
+            "p_key": key, "p_lease": prepared["lease"], "p_action": "finish",
+            "p_data": {"content": text, "evidence_ids": [str(x) for x in evidence_ids], "versions": versions},
+        }))[0]
+        try:
+            await self._maybe_update_summary(user, thread_id, trace_id)
+        except Exception:
+            logger.warning("chat_summary_failed; reply already committed")
         await telemetry.ai_run(
             task_type="companion",
             agent_name="companion",
@@ -144,85 +163,7 @@ class CompanionService:
                 event_name="personal_memory_used",
                 properties={"thread_id": str(thread_id), "evidence_count": len(evidence_ids)},
             )
-        message = ThreadMessage.model_validate(inserted[0])
-        return ChatResponse(
-            thread_id=thread_id,
-            moment_id=moment_id,
-            message=message,
-            evidence_moment_ids=evidence_ids,
-            used_long_term_memory=bool(evidence),
-        )
-
-    async def _ensure_thread(self, user: UserContext, payload: ThreadMessageCreate) -> tuple[UUID, UUID, bool]:
-        if payload.thread_id:
-            rows = await self.db.select(
-                "threads",
-                user.access_token,
-                params={
-                    "select": "id,source_moment_id",
-                    "id": f"eq.{payload.thread_id}",
-                    "user_id": f"eq.{user.id}",
-                    "limit": "1",
-                },
-            )
-            if not rows:
-                raise LookupError("Thread 不存在")
-            return UUID(rows[0]["id"]), UUID(rows[0]["source_moment_id"]), False
-
-        if payload.source_moment_id:
-            source_id = payload.source_moment_id
-            source_rows = await self.db.select(
-                "moments",
-                user.access_token,
-                params={
-                    "select": "id,content,input_type",
-                    "id": f"eq.{source_id}",
-                    "user_id": f"eq.{user.id}",
-                    "limit": "1",
-                },
-            )
-            if not source_rows:
-                raise LookupError("源 Moment 不存在")
-            existing_threads = await self.db.select(
-                "threads",
-                user.access_token,
-                params={
-                    "select": "id,source_moment_id",
-                    "source_moment_id": f"eq.{source_id}",
-                    "user_id": f"eq.{user.id}",
-                    "limit": "1",
-                },
-            )
-            if existing_threads:
-                return UUID(existing_threads[0]["id"]), source_id, False
-        else:
-            created = await self.db.insert(
-                "moments",
-                user.access_token,
-                {
-                    "user_id": str(user.id),
-                    "content": payload.content,
-                    "mode": "chat",
-                    "input_type": payload.input_type,
-                    "memory_enabled": True,
-                },
-            )
-            source_rows = created
-            source_id = UUID(created[0]["id"])
-
-        thread = await self.db.insert(
-            "threads",
-            user.access_token,
-            {"user_id": str(user.id), "source_moment_id": str(source_id)},
-        )
-        thread_id = UUID(thread[0]["id"])
-        await self.db.update(
-            "moments",
-            user.access_token,
-            {"thread_id": str(thread_id)},
-            params={"id": f"eq.{source_id}", "user_id": f"eq.{user.id}"},
-        )
-        return thread_id, source_id, True
+        return ChatResponse.model_validate(result)
 
     async def _maybe_update_summary(self, user: UserContext, thread_id: UUID, trace_id: str) -> None:
         messages = await self.db.select(

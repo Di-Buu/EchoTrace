@@ -1,6 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { FlatList, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Screen } from '@/components/Screen';
@@ -8,6 +8,7 @@ import { StateMessage } from '@/components/StateMessage';
 import { api, ApiError } from '@/lib/api';
 import { colors, radii, spacing } from '@/lib/theme';
 import type { Insight, WeeklyReport } from '@/lib/types';
+import { type AnalysisTask, useAnalysisTask } from '@/lib/useAnalysisTask';
 
 export default function InsightsScreen() {
   const [tab, setTab] = useState<'discoveries' | 'ask'>('discoveries');
@@ -20,6 +21,12 @@ export default function InsightsScreen() {
   const [asking, setAsking] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [message, setMessage] = useState('');
+  const requestKey = useRef<{ text: string; key: string } | null>(null);
+  const analysis = useAnalysisTask((id) => {
+    setQuestion('');
+    requestKey.current = null;
+    router.push({ pathname: '/insight/[id]', params: { id } });
+  });
 
   const load = useCallback(async () => {
     try {
@@ -64,14 +71,18 @@ export default function InsightsScreen() {
   }, [loadWeeks, weeks]);
 
   async function ask() {
-    if (!question.trim() || asking) return;
+    if (!question.trim() || asking || analysis.running) return;
     setAsking(true);
     setMessage('');
+    analysis.setNotice('');
     try {
-      const result = await api.post<Insight>('/insights/query', { question: question.trim() });
-      setQuestion('');
-      await load();
-      router.push({ pathname: '/insight/[id]', params: { id: result.id } });
+      const text = question.trim();
+      if (!requestKey.current || requestKey.current.text !== text ||
+        ['failed', 'cancelled', 'succeeded'].includes(analysis.task?.status ?? '')) {
+        requestKey.current = { text, key: `analysis-${Date.now()}-${Math.random().toString(36).slice(2)}` };
+      }
+      analysis.setTask(await api.post<AnalysisTask>('/insights/query', { question: text }, requestKey.current.key));
+      setMessage('已收到，正在后台整理。你可以先查看已有发现。');
     } catch (error) {
       setMessage(error instanceof ApiError ? error.message : '这次没能找到足够可靠的线索。');
     } finally {
@@ -182,11 +193,19 @@ export default function InsightsScreen() {
                 multiline
                 style={styles.askInput}
               />
-              <Pressable disabled={!question.trim() || asking} onPress={ask} style={[styles.askButton, (!question.trim() || asking) && styles.disabled]}>
+              <Pressable disabled={!question.trim() || asking || analysis.running} onPress={ask} style={[styles.askButton, (!question.trim() || asking || analysis.running) && styles.disabled]}>
                 <Ionicons name="arrow-up" size={21} color={colors.white} />
               </Pressable>
             </View>
-            {asking ? <Text style={styles.status}>正在翻一翻过去的你……</Text> : message ? <Text style={styles.status}>{message}</Text> : null}
+            {asking ? <Text style={styles.status}>正在提交……</Text> : (analysis.notice || message) ? <Text style={styles.status}>{analysis.notice || message}</Text> : null}
+            {analysis.running && analysis.task ? <View>
+              <Pressable onPress={() => { void analysis.refresh(analysis.task!.id).catch(() => analysis.setNotice('暂时无法获取进度')); }}>
+                <Text style={styles.status}>查看进度</Text>
+              </Pressable>
+              <Pressable onPress={() => { void analysis.cancel().catch(() => analysis.setNotice('停止请求未成功，请重试')); }}>
+                <Text style={styles.status}>停止整理</Text>
+              </Pressable>
+            </View> : null}
           </View>
         </KeyboardAvoidingView>
       )}

@@ -40,7 +40,9 @@ from app.services.telemetry import Telemetry
 
 
 class InsufficientEvidenceError(RuntimeError):
-    pass
+    def __init__(self, message: str, remedy: str = "retrieve"):
+        super().__init__(message)
+        self.remedy = remedy
 
 
 class SynthesisAuditCheck(BaseModel):
@@ -57,10 +59,13 @@ class SynthesisAuditOutput(BaseModel):
     checks: list[SynthesisAuditCheck] = Field(default_factory=list, max_length=30)
 
 
-AGENT_VERSION = "insight-team-v1.9"
+AGENT_VERSION = "insight-team-v2.0"
 
 CHINESE_NUMBERS = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
-CAUSAL_MARKER = re.compile(r"因为|由于|所以|导致|(?<!原)因(?!果|此|而)")
+CAUSAL_MARKER = re.compile(r"因为|由于|所以|导致|(?<!原)因(?!果|此|而|素)")
+EVIDENCE_LIMITATION_INTRO = re.compile(
+    r"^(?:由于|因为)([^，,]+)[，,]\s*(?:仍然|仍|尚)?(?:无法|不能|不足以)(?:排除|确定|判断|证明|推断)"
+)
 CONTINUITY_MARKER = re.compile(r"一直|持续|连续|(?:过去|最近)[^，。！？；\n]{0,8}[周月年]")
 NEGATED_CLAIM = re.compile(r"无法|不能|不足以|不代表|不等于|未知|缺乏|不能确定|无法确定|未能证明")
 RECORD_SPAN_WEEKS = re.compile(r"(?:现有)?记录(?:的)?时间跨度(?:为|是)([一二三四五六七八九十\d]+)周")
@@ -250,26 +255,64 @@ class InsightEngine:
         cache_key: str | None = None,
         evidence_version: str | None = None,
         trace_id: str,
+        original_question: str | None = None,
+        review_evidence: list[RetrievedEvidence] | None = None,
     ) -> dict:
         if not evidence:
             raise InsufficientEvidenceError("现有记录不足以支持回答")
-        evidence_payload = self._compact_evidence(evidence)
+        selected_ids = {str(item.moment_id) for item in evidence}
+        pool = {str(item.moment_id): item for item in (review_evidence or []) + evidence}
+        originals = await self.db.rpc(
+            "evidence_snapshot",
+            user.access_token,
+            {
+                "p_ids": list(pool),
+            },
+        )
+        by_id = {str(row["id"]): row for row in originals}
+        if len(by_id) != len(pool):
+            raise InsufficientEvidenceError("部分记录已撤回", remedy="stop")
+        versions = {key: row["revision"] for key, row in by_id.items()}
+        evidence = [
+            item.model_copy(
+                update={
+                    "moment_content": by_id[str(item.moment_id)]["content"],
+                    "event_at": by_id[str(item.moment_id)].get("event_at"),
+                    "event_time_source": by_id[str(item.moment_id)].get("event_time_source", "unknown"),
+                    "revision": by_id[str(item.moment_id)]["revision"],
+                    "occurred_at": datetime.fromisoformat(
+                        str(by_id[str(item.moment_id)].get("created_at", item.occurred_at.isoformat())).replace(
+                            "Z", "+00:00"
+                        )
+                    ),
+                    "recorded_at": datetime.fromisoformat(
+                        str(by_id[str(item.moment_id)].get("created_at", item.occurred_at.isoformat())).replace(
+                            "Z", "+00:00"
+                        )
+                    ),
+                }
+            )
+            for item in pool.values()
+        ]
+        self._snapshot_versions = versions
+        review_payload = self._compact_evidence(evidence)
+        evidence_payload = [item for item in review_payload if item["moment_id"] in selected_ids]
 
         if route.route_type == "simple":
             claims = await self._simple_reader(user, question, evidence_payload, trace_id)
         else:
             selected = route.specialists or ["temporal", "pattern"]
             tasks = [
-                self._specialist(user, specialist, question, evidence_payload, trace_id)
-                for specialist in selected
+                self._specialist(user, specialist, question, evidence_payload, trace_id) for specialist in selected
             ]
             outputs = await asyncio.gather(*tasks)
             claims = [claim for output in outputs for claim in output.claims]
 
         if not claims:
             raise InsufficientEvidenceError("没有形成可验证的候选观察")
-        verified = await self._verify(user, question, evidence_payload, claims, trace_id)
-        allowed_ids = {str(item["moment_id"]) for item in evidence_payload}
+        # The verifier still sees candidates the planner did not select, to catch omitted counterexamples.
+        verified = await self._verify(user, question, review_payload, claims, trace_id)
+        allowed_ids = set(pool)
         accepted: list[VerifiedClaim] = []
         for claim in verified.claims:
             source_ids = {str(item) for item in claim.source_moment_ids}
@@ -286,6 +329,11 @@ class InsightEngine:
         if not accepted:
             raise InsufficientEvidenceError("候选结论未通过证据验证")
 
+        synthesis_ids = selected_ids | {
+            str(mid) for claim in accepted for mid in claim.source_moment_ids + claim.counter_evidence_moment_ids
+        }
+        evidence_payload = [item for item in review_payload if item["moment_id"] in synthesis_ids]
+
         all_statuses = {claim.verification_status for claim in accepted}
         final_status = "WEAK" if "WEAK" in all_statuses else "PASS"
         synthesis, synth_meta = await self.ai.structured_chat(
@@ -295,30 +343,23 @@ class InsightEngine:
                     "question": question,
                     "evidence": evidence_payload,
                     "verified_claims": [item.model_dump(mode="json") for item in accepted],
-                    "output_schema": {
-                        "title": "string",
-                        "body": "string",
-                        "limitation": "string or null",
-                    },
                 },
                 ensure_ascii=False,
             ),
             schema=SynthesisOutput,
             temperature=0.2,
-            **self._quality_reasoning_options(),
+            **self._synthesis_options(),
         )
         await self._trace(
             user,
             "insight_synthesizer",
             SYNTHESIZER_VERSION,
             synth_meta,
-            evidence_count=len(allowed_ids),
+            evidence_count=len(evidence_payload),
             trace_id=trace_id,
             details={"accepted_claims": len(accepted), "verification_status": final_status, "attempt": 1},
         )
-        audit = await self._audit_synthesis(
-            user, question, evidence_payload, accepted, synthesis, trace_id, attempt=1
-        )
+        audit = await self._audit_synthesis(user, question, evidence_payload, accepted, synthesis, trace_id, attempt=1)
         max_repairs = 2 if trigger_type == "user_query" and len(evidence_payload) >= 2 else 1
         for repair_number in range(1, max_repairs + 1):
             if audit.supported:
@@ -336,24 +377,19 @@ class InsightEngine:
                             "reason": audit.reason,
                         },
                         "instruction": "只修正无据措辞，不添加新事实；保留有价值且有证据的观察。",
-                        "output_schema": {
-                            "title": "string",
-                            "body": "string",
-                            "limitation": "string or null",
-                        },
                     },
                     ensure_ascii=False,
                 ),
                 schema=SynthesisOutput,
                 temperature=0.1,
-                **self._quality_reasoning_options(),
+                **self._synthesis_options(),
             )
             await self._trace(
                 user,
                 "insight_synthesizer",
                 SYNTHESIZER_VERSION,
                 repair_meta,
-                evidence_count=len(allowed_ids),
+                evidence_count=len(evidence_payload),
                 trace_id=trace_id,
                 details={
                     "accepted_claims": len(accepted),
@@ -362,37 +398,40 @@ class InsightEngine:
                 },
             )
             audit = await self._audit_synthesis(
-                user, question, evidence_payload, accepted, synthesis, trace_id,
+                user,
+                question,
+                evidence_payload,
+                accepted,
+                synthesis,
+                trace_id,
                 attempt=repair_number + 1,
             )
         if not audit.supported:
-            raise InsufficientEvidenceError("洞察成稿未通过原始记录核验")
+            raise InsufficientEvidenceError("洞察成稿未通过原始记录核验", remedy="narrow")
 
         starts = [claim.time_start for claim in accepted if claim.time_start]
         ends = [claim.time_end for claim in accepted if claim.time_end]
         evidence_version = evidence_version or self._evidence_version_from_results(evidence)
-        insight = (
-            await self.db.insert(
-                "insights",
-                user.access_token,
-                {
-                    "user_id": str(user.id),
-                    "insight_type": route.insight_type,
-                    "trigger_type": trigger_type,
-                    "query": question if trigger_type == "user_query" else None,
-                    "title": synthesis.title,
-                    "body": synthesis.body,
-                    "limitation": synthesis.limitation,
-                    "verification_status": final_status,
-                    "time_start": min(starts).isoformat() if starts else None,
-                    "time_end": max(ends).isoformat() if ends else None,
-                    "cache_key": cache_key,
-                    "evidence_version": evidence_version,
-                    "agent_version": AGENT_VERSION,
-                    "status": "active",
-                },
-            )
-        )[0]
+        insight_payload = {
+            "user_id": str(user.id),
+            "insight_type": route.insight_type,
+            "trigger_type": trigger_type,
+            "query": (original_question if original_question is not None else question)
+            if trigger_type == "user_query"
+            else None,
+            "title": synthesis.title,
+            "body": synthesis.body,
+            "limitation": synthesis.limitation,
+            "verification_status": final_status,
+            "time_start": min(starts).isoformat() if starts else None,
+            "time_end": max(ends).isoformat() if ends else None,
+            "cache_key": cache_key,
+            "evidence_version": evidence_version,
+            "agent_version": AGENT_VERSION,
+            "status": "active",
+        }
+        # Persist only once, below, after all source rows are built.
+        insight = {"id": None}
 
         memory_by_moment: dict[str, str] = {}
         for item in evidence:
@@ -435,10 +474,17 @@ class InsightEngine:
                     }
                 )
         deduped = {(row["moment_id"], row["stance"]): row for row in evidence_rows}
-        if deduped:
-            await self.db.insert("insight_evidence", user.access_token, list(deduped.values()))
-        insight["evidence"] = list(deduped.values())
-        return insight
+        return (
+            await self.db.rpc(
+                "commit_insight",
+                user.access_token,
+                {
+                    "p_insight": insight_payload,
+                    "p_evidence": list(deduped.values()),
+                    "p_versions": versions,
+                },
+            )
+        )[0]
 
     async def _simple_reader(
         self, user: UserContext, question: str, evidence_payload: list[dict], trace_id: str
@@ -535,6 +581,19 @@ class InsightEngine:
         claims: list[InsightClaim],
         trace_id: str,
     ) -> VerifierOutput:
+        # Re-read the originals independently, not just the Specialist's summary.
+        originals = await self.db.rpc(
+            "evidence_snapshot",
+            user.access_token,
+            {
+                "p_ids": [item["moment_id"] for item in evidence_payload],
+            },
+        )
+        expected = getattr(self, "_snapshot_versions", {})
+        if {str(row["id"]): row["revision"] for row in originals} != expected:
+            raise InsufficientEvidenceError("核验时发现记录已变化", remedy="stop")
+        text_by_id = {str(row["id"]): row["content"] for row in originals}
+        evidence_payload = [{**item, "moment_content": text_by_id[str(item["moment_id"])]} for item in evidence_payload]
         output, metadata = await self.ai.structured_chat(
             system=VERIFIER_SYSTEM,
             user=json.dumps(
@@ -637,9 +696,7 @@ class InsightEngine:
             if item["segment_id"] not in checks
             or not checks[item["segment_id"]].supported
             or not checks[item["segment_id"]].source_moment_ids
-            or not {
-                str(source_id) for source_id in checks[item["segment_id"]].source_moment_ids
-            }.issubset(allowed_ids)
+            or not {str(source_id) for source_id in checks[item["segment_id"]].source_moment_ids}.issubset(allowed_ids)
         ]
         supported = output.supported and complete and not failed_segments and not risk_phrases
         if not supported:
@@ -671,9 +728,7 @@ class InsightEngine:
         return output
 
     @staticmethod
-    def _unsupported_risk_phrases(
-        synthesis: SynthesisOutput, evidence_payload: list[dict]
-    ) -> list[str]:
+    def _unsupported_risk_phrases(synthesis: SynthesisOutput, evidence_payload: list[dict]) -> list[str]:
         source_text = "\n".join(str(item["moment_content"]) for item in evidence_payload)
         visible_claims = f"{synthesis.title}\n{synthesis.body}"
         phrases = [
@@ -715,7 +770,11 @@ class InsightEngine:
             if str(moment_id) in source_by_id
         }
         used_dates = [
-            datetime.fromisoformat(str(source_by_id[moment_id]["occurred_at"]).replace("Z", "+00:00")).date()
+            datetime.fromisoformat(
+                str(source_by_id[moment_id].get("recorded_at") or source_by_id[moment_id]["occurred_at"]).replace(
+                    "Z", "+00:00"
+                )
+            ).date()
             for moment_id in used_ids
         ]
         span_weeks = None
@@ -729,15 +788,19 @@ class InsightEngine:
             if not check:
                 continue
             sources = [
-                source_by_id[str(moment_id)]
-                for moment_id in check.source_moment_ids
-                if str(moment_id) in source_by_id
+                source_by_id[str(moment_id)] for moment_id in check.source_moment_ids if str(moment_id) in source_by_id
             ]
             source_texts = [str(item["moment_content"]) for item in sources]
-            for clause in re.split(r"[，,：:]+", part):
+            intro = EVIDENCE_LIMITATION_INTRO.search(part)
+            evidence_limitation = intro and re.search(
+                r"时间[^，,]{0,8}(?:重合|重叠)$|共现$|证据(?:不足|有限|缺失)$|缺乏(?:对照|记录|证据)$|样本(?:不足|有限|少)$",
+                intro[1],
+            )
+            for index, clause in enumerate(re.split(r"[，,：:]+", part)):
                 if NEGATED_CLAIM.search(clause):
                     continue
-                if CAUSAL_MARKER.search(clause) and not any(CAUSAL_MARKER.search(text) for text in source_texts):
+                causal_text = re.sub(r"^(?:由于|因为)", "", clause) if index == 0 and evidence_limitation else clause
+                if CAUSAL_MARKER.search(causal_text) and not any(CAUSAL_MARKER.search(text) for text in source_texts):
                     risks.append(clause.strip())
                 if "持续" in clause and not any(CONTINUITY_MARKER.search(text) for text in source_texts):
                     risks.append(clause.strip())
@@ -747,6 +810,15 @@ class InsightEngine:
                 if claimed != span_weeks:
                     risks.append(part)
         return list(dict.fromkeys(risks))
+
+    def _synthesis_options(self) -> dict:
+        # Writing from verified claims is not another independent investigation.
+        # The formal schema still comes from structured_chat; final audit stays on.
+        return {
+            "enable_thinking": False,
+            "max_tokens": 2000,
+            "timeout_seconds": self.settings.insight_ai_timeout_seconds,
+        }
 
     def _quality_reasoning_options(self) -> dict:
         return {
@@ -817,7 +889,12 @@ class InsightEngine:
                 {
                     "moment_id": key,
                     "moment_content": item.moment_content,
-                    "occurred_at": item.occurred_at.isoformat(),
+                    "recorded_at": (item.recorded_at or item.occurred_at).isoformat(),
+                    "event_at": str(item.event_at) if item.event_at else None,
+                    "event_time_source": item.event_time_source,
+                    "event_time_note": "用户已确认事件时间"
+                    if item.event_at
+                    else "事件时间未经确认；只能说某日记录提到，不得把记录日期写成事件发生日期",
                     "memories": [],
                 },
             )
@@ -829,7 +906,7 @@ class InsightEngine:
                     "confidence": item.confidence,
                 }
             )
-        return sorted(deduped.values(), key=lambda item: item["occurred_at"])
+        return sorted(deduped.values(), key=lambda item: item["recorded_at"])
 
     @staticmethod
     def _evidence_version(memories: list[dict]) -> str:
@@ -838,7 +915,13 @@ class InsightEngine:
 
     @staticmethod
     def _evidence_version_from_results(evidence: list[RetrievedEvidence]) -> str:
-        value = "|".join(sorted(f"{item.memory_id}:{item.moment_id}" for item in evidence))
+        value = json.dumps(
+            sorted(
+                (str(item.moment_id), item.revision, item.moment_content, str(item.event_at), item.event_time_source)
+                for item in evidence
+            ),
+            ensure_ascii=False,
+        )
         return hashlib.sha256(value.encode()).hexdigest()[:20]
 
     async def _trace(

@@ -1,0 +1,64 @@
+name: echotrace
+x-app: &app
+  image: ${ECHOTRACE_IMAGE:-echotrace:local}
+  build: .
+  init: true
+  restart: unless-stopped
+  read_only: true
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,size=64m,uid=10001,gid=10001
+  security_opt:
+    - no-new-privileges:true
+  cap_drop: [ALL]
+  stop_grace_period: 30s
+  mem_limit: 512m
+  cpus: 1.0
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: '3'
+x-env: &env
+  APP_ENV: production
+  APP_ORIGIN: ${APP_ORIGIN:-http://localhost:8081}
+  SUPABASE_URL: ${SUPABASE_URL:?configure Supabase URL}
+  SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:?configure public API key}
+  DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
+  DASHSCOPE_BASE_URL: ${DASHSCOPE_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+  CHAT_MODEL: ${CHAT_MODEL:-}
+  EMBEDDING_MODEL: ${EMBEDDING_MODEL:-}
+  EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION:-1024}
+  INSIGHT_EXECUTION_PROFILE: local_quality
+services:
+  api:
+    <<: *app
+    environment: *env
+    ports:
+      - '127.0.0.1:${ECHOTRACE_BIND_PORT:-8000}:8000'
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready',timeout=4)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+  worker:
+    <<: *app
+    environment:
+      <<: *env
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:?configure server-only Worker key}
+      TASK_TIMEOUT_SECONDS: ${TASK_TIMEOUT_SECONDS:-600}
+      AGENT_MAX_STEPS: ${AGENT_MAX_STEPS:-5}
+      AGENT_MAX_CALLS: ${AGENT_MAX_CALLS:-24}
+      AGENT_MAX_TOKENS: ${AGENT_MAX_TOKENS:-80000}
+      ANALYSIS_STRATEGY: ${ANALYSIS_STRATEGY:-dynamic}
+      RETRIEVAL_FUSION: ${RETRIEVAL_FUSION:-rrf}
+      AGENT_MAX_PARALLEL: ${AGENT_MAX_PARALLEL:-2}
+    command: [python, -m, app.worker]
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, python, -m, app.worker, --health]
+      interval: 20s
+      timeout: 5s
+      retries: 3
